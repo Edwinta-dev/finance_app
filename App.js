@@ -2,13 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform } from 'react-native';
 
-import { theme } from './src/styles/theme.js';
-import { SummaryScreen } from './src/screens/SummaryScreen.js';
-import { TransactionsScreen } from './src/screens/TransactionsScreen.js'; 
-import { AccountsScreen } from './src/screens/AccountsScreen.js';
-import { BudgetScreen } from './src/screens/BudgetScreen.js'; 
-import { ReconciliationModal } from './src/components/ReconciliationModal.js';
-import { QuickLogModal } from './src/components/QuickLogModal.js'; // FIXED: Imported our wrapping overlay component
+import { theme, screenWidth } from './src/styles/theme';
+import { SummaryScreen } from './src/screens/SummaryScreen';
+import { TransactionsScreen } from './src/screens/TransactionsScreen'; 
+import { AccountsScreen } from './src/screens/AccountsScreen';
+import { BudgetScreen } from './src/screens/BudgetScreen'; 
+import { ReconciliationModal } from './src/components/ReconciliationModal';
+import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function App() {
@@ -16,11 +16,7 @@ export default function App() {
 
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  
-  // FIXED UI: Default home route landing view initialized to 'history' (Summary) as Quick Log is now modalized
   const [currentView, setCurrentView] = useState('history'); 
-  
-  // FIXED UI: Added interactive floating visibility switch state
   const [quickLogModalVisible, setQuickLogModalVisible] = useState(false);
 
   const [outflowCategories, setOutflowCategories] = useState(['Food', 'Transport', 'Groceries', 'Utilities', 'Personal', 'Miscellaneous', 'Health']);
@@ -32,8 +28,6 @@ export default function App() {
 
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
-  
-  // Kept intact at the root layer to support deep-link string catch-up flows safely with zero regression
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('Food'); 
   const [selectedAccountId, setSelectedAccountId] = useState(null);
@@ -84,9 +78,8 @@ export default function App() {
         if (standardizedCat) setExpenseCategory(standardizedCat);
       }
 
-      // FIXED UI: Automatically opens the entry overlay drawer when a deep link fires
       setQuickLogModalVisible(true);
-      Alert.alert("Quick Launcher Active", `Staged $${extractedAmount} under ${extractedCategory} instantly inside log workspace.`);
+      Alert.alert("Quick Launcher Active", `Staged $${extractedAmount} under ${extractedCategory} inside log workspace.`);
     } catch (err) {
       console.log("Deep link parsing error context: ", err);
     }
@@ -437,7 +430,38 @@ export default function App() {
       }}
     ]);
   };
+  const handleUpdateRecurringTransaction = (recId, nextRecObject) => {
+      const updated = recurringTransactions.map(r => r.id === recId ? { ...r, ...nextRecObject } : r);
+      setRecurringTransactions(updated);
+      syncCache(accounts, transactions, outflowCategories, inflowCategories, updated);
+    };
 
+    const handleHardResetApplicationDataStore = () => {
+      Alert.alert(
+        "Confirm Irreversible Wipe",
+        "Are you sure you want to restore factory configurations? portfolios, transaction histories, and budgets will be deleted instantly.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Wipe Data", style: "destructive", onPress: async () => {
+            try {
+              await AsyncStorage.clear();
+              setAccounts([]);
+              setTransactions([]);
+              setMonthlyBudgets({});
+              setEnvelopeAllocations({});
+              setRecurringTransactions([]);
+              setOutflowCategories(['Food', 'Transport', 'Groceries', 'Utilities', 'Personal', 'Miscellaneous', 'Health']);
+              setInflowCategories(['Salary', 'Investments', 'Bank Interest', 'Reimbursement', 'Side Hustle']);
+              setCurrentView('history');
+              Alert.alert("Reset Succeeded", "Storage partitions scrubbed cleanly back to baseline factory dimensions.");
+            } catch (err) {
+              Alert.alert("Fault Alert", "Failed to force operational disk block wipe.");
+            }
+          }}
+        ]
+      );
+    };
+  // FIXED: Explicit variable declaration safely positioned inside global functional scope right before layout render pass
   const totalFinancialResources = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
   return (
@@ -447,12 +471,10 @@ export default function App() {
         <Text style={theme.headerSubtitle}>Total Net Worth: ${totalFinancialResources.toFixed(2)}</Text>
       </View>
 
-      {/* MAIN DATA MODULE VIEWPORTS CONTAINER PANEL */}
-      {/* FIXED UI: Added extra padding at the bottom of the scroll track to prevent content from being covered by the navigation bar */}
       <ScrollView 
         ref={mainScrollRef} 
         style={theme.content} 
-        contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 110 : 95 }} 
+        contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 140 : 135 }} 
         keyboardShouldPersistTaps="handled"
       >
         {currentView === 'history' && (
@@ -483,15 +505,41 @@ export default function App() {
             outflowCategories={outflowCategories} inflowCategories={inflowCategories}
             onAddOutflowCategory={handleAddOutflowCategory} onDeleteOutflowCategory={handleDeleteOutflowCategory}
             onAddInflowCategory={handleAddInflowCategory} onDeleteInflowCategory={handleDeleteInflowCategory}
-            onUpdateInterestRate={handleUpdateInterestRate} scrollRef={mainScrollRef} 
+            onUpdateInterestRate={handleUpdateInterestRate}
+            
+            // CONNECTED SPECIFIC RUNTIME CALLBACK CHANNELS HERE
+            recurringTransactions={recurringTransactions}
+            onUpdateRecurring={handleUpdateRecurringTransaction}
+            onDeleteRecurring={handleDeleteRecurring}
+            onHardResetApp={handleHardResetApplicationDataStore}
+            
+            scrollRef={mainScrollRef} 
           />
         )}
       </ScrollView>
 
-      {/* FIXED UI: REACTIVE BOTTOM-RIGHT INTERACTIVE FAB SWITCHER */}
+      {/* QUICK LOG ABSOLUTE FLOATING INTERFACE LAYER */}
+      {quickLogModalVisible && (
+        <QuickLogModal 
+          setVisible={setQuickLogModalVisible}
+          accounts={accounts}
+          outflowCategories={outflowCategories}
+          inflowCategories={inflowCategories}
+          expenseAmount={expenseAmount}
+          setExpenseAmount={setExpenseAmount}
+          expenseCategory={expenseCategory}
+          setExpenseCategory={setExpenseCategory}
+          selectedAccountId={selectedAccountId}
+          setSelectedAccountId={setSelectedAccountId}
+          onLogTransaction={handleLogTransaction}
+          onSaveRecurring={handleAddRecurring}
+        />
+      )}
+
+      {/* REACTIVE SWITCHER FLOATING ACTION CONTROL NODE BUTTON */}
       <TouchableOpacity 
         style={[theme.fabButton, quickLogModalVisible && theme.fabButtonActive]}
-        activeOpacity={0.855}
+        activeOpacity={0.85}
         onPress={() => setQuickLogModalVisible(!quickLogModalVisible)}
       >
         <Text style={theme.fabButtonText}>
@@ -499,7 +547,7 @@ export default function App() {
         </Text>
       </TouchableOpacity>
 
-      {/* FIXED UI: TRANSLUCENT FIXED BOTTOM BAR NAVIGATION DECK */}
+      {/* TRANSLUCENT NAVIGATION PANEL BASE CONTROLLER FOOTER FOOTPRINT */}
       <View style={theme.bottomTabBar}>
         {[
           { key: 'history', label: 'Summary', icon: '📊' },
@@ -525,23 +573,6 @@ export default function App() {
           );
         })}
       </View>
-
-      {/* GLOBAL MODALS AND OVERLAYS LAYER */}
-      <QuickLogModal 
-        visible={quickLogModalVisible}
-        setVisible={setQuickLogModalVisible}
-        accounts={accounts}
-        outflowCategories={outflowCategories}
-        inflowCategories={inflowCategories}
-        expenseAmount={expenseAmount}
-        setExpenseAmount={setExpenseAmount}
-        expenseCategory={expenseCategory}
-        setExpenseCategory={setExpenseCategory}
-        selectedAccountId={selectedAccountId}
-        setSelectedAccountId={setSelectedAccountId}
-        onLogTransaction={handleLogTransaction}
-        onSaveRecurring={handleAddRecurring}
-      />
 
       <ReconciliationModal 
         visible={reconModalVisible} setVisible={setReconModalVisible}
