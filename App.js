@@ -1,14 +1,14 @@
 // App.js
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking } from 'react-native';
+import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform } from 'react-native';
 
 import { theme } from './src/styles/theme.js';
-import { DashboardScreen } from './src/screens/DashboardScreen.js';
 import { SummaryScreen } from './src/screens/SummaryScreen.js';
 import { TransactionsScreen } from './src/screens/TransactionsScreen.js'; 
 import { AccountsScreen } from './src/screens/AccountsScreen.js';
 import { BudgetScreen } from './src/screens/BudgetScreen.js'; 
 import { ReconciliationModal } from './src/components/ReconciliationModal.js';
+import { QuickLogModal } from './src/components/QuickLogModal.js'; // FIXED: Imported our wrapping overlay component
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function App() {
@@ -16,21 +16,28 @@ export default function App() {
 
   const [accounts, setAccounts] = useState([]);
   const [transactions, setTransactions] = useState([]);
-  const [currentView, setCurrentView] = useState('dashboard');
   
+  // FIXED UI: Default home route landing view initialized to 'history' (Summary) as Quick Log is now modalized
+  const [currentView, setCurrentView] = useState('history'); 
+  
+  // FIXED UI: Added interactive floating visibility switch state
+  const [quickLogModalVisible, setQuickLogModalVisible] = useState(false);
+
   const [outflowCategories, setOutflowCategories] = useState(['Food', 'Transport', 'Groceries', 'Utilities', 'Personal', 'Miscellaneous', 'Health']);
   const [inflowCategories, setInflowCategories] = useState(['Salary', 'Investments', 'Bank Interest', 'Reimbursement', 'Side Hustle']);
   const [recurringTransactions, setRecurringTransactions] = useState([]);
 
-  // FIXED: Replaced loose flat numerical budget ceiling state hook with a persistent timebound map index
   const [monthlyBudgets, setMonthlyBudgets] = useState({}); 
   const [envelopeAllocations, setEnvelopeAllocations] = useState({}); 
 
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
+  
+  // Kept intact at the root layer to support deep-link string catch-up flows safely with zero regression
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('Food'); 
   const [selectedAccountId, setSelectedAccountId] = useState(null);
+  
   const [reconModalVisible, setReconModalVisible] = useState(false);
   const [reconAccountId, setReconAccountId] = useState(null);
   const [reconNewBalance, setReconNewBalance] = useState('');
@@ -77,8 +84,9 @@ export default function App() {
         if (standardizedCat) setExpenseCategory(standardizedCat);
       }
 
-      setCurrentView('dashboard');
-      Alert.alert("Quick Launcher Active", `Staged $${extractedAmount} under ${extractedCategory} instantly.`);
+      // FIXED UI: Automatically opens the entry overlay drawer when a deep link fires
+      setQuickLogModalVisible(true);
+      Alert.alert("Quick Launcher Active", `Staged $${extractedAmount} under ${extractedCategory} instantly inside log workspace.`);
     } catch (err) {
       console.log("Deep link parsing error context: ", err);
     }
@@ -95,8 +103,6 @@ export default function App() {
       const storedOutflowCats = await AsyncStorage.getItem('@budget_outflow_categories');
       const storedInflowCats = await AsyncStorage.getItem('@budget_inflow_categories');
       const storedRecs = await AsyncStorage.getItem('@budget_recurring');
-      
-      // FIXED: Loading historical map logs safely from separate slots
       const storedBudgetsMap = await AsyncStorage.getItem('@budget_monthly_caps_map');
       const storedEnvelopes = await AsyncStorage.getItem('@budget_envelope_allocations');
       
@@ -113,14 +119,12 @@ export default function App() {
       if (storedBudgetsMap) {
         setMonthlyBudgets(JSON.parse(storedBudgetsMap));
       } else {
-        // Migration fallback logic seamlessly tracks forward existing users
         const legacyCap = await AsyncStorage.getItem('@budget_monthly_global_cap');
         setMonthlyBudgets({ [currentYearMonth]: legacyCap ? parseFloat(legacyCap) : 2000 });
       }
 
       if (storedEnvelopes) setEnvelopeAllocations(JSON.parse(storedEnvelopes));
 
-      // --- AUTOMATED MONTHLY INTEREST COMPOUNDING ENGINE ---
       let interestCompoundedThisSession = false;
       let freshSystemTxs = [];
 
@@ -193,14 +197,13 @@ export default function App() {
       await AsyncStorage.setItem('@budget_accounts', JSON.stringify(accs));
       await AsyncStorage.setItem('@budget_transactions', JSON.stringify(txs));
       await AsyncStorage.setItem('@budget_outflow_categories', JSON.stringify(outCats));
-      await AsyncStorage.setItem('@budget_inflow_categories', JSON.stringify(inflowCategories));
+      await AsyncStorage.setItem('@budget_inflow_categories', JSON.stringify(inCats));
       await AsyncStorage.setItem('@budget_recurring', JSON.stringify(recs));
     } catch (e) {
       Alert.alert("Storage Failure", "Disk write lock exception.");
     }
   };
 
-  // FIXED: Adjusted synchronization handler signatures to receive and commit entire maps cleanly
   const syncEnvelopeCache = async (nextBudgetsMap, nextAllocationsObject) => {
     try {
       await AsyncStorage.setItem('@budget_monthly_caps_map', JSON.stringify(nextBudgetsMap));
@@ -248,7 +251,7 @@ export default function App() {
   };
 
   const handleLogTransaction = (isIncomingToggle, inputDescription) => {
-    if (!expenseAmount || !expenseCategory || !selectedAccountId) return Alert.alert("Error", "Required fields missing.");
+    if (!expenseAmount || !selectedAccountId) return Alert.alert("Error", "Required fields missing.");
     const amountNum = parseFloat(expenseAmount);
     
     const updatedAccs = accounts.map(a => {
@@ -399,7 +402,7 @@ export default function App() {
     const updated = [{ id: Date.now().toString(), ...newRecPayload }, ...recurringTransactions];
     setRecurringTransactions(updated);
     syncCache(accounts, transactions, outflowCategories, inflowCategories, updated);
-    Alert.alert("Success", "Automation plan registered successfully!");
+    Alert.alert("Success", "Automation rule registered successfully!");
   };
 
   const handleDeleteRecurring = (targetId) => {
@@ -444,41 +447,21 @@ export default function App() {
         <Text style={theme.headerSubtitle}>Total Net Worth: ${totalFinancialResources.toFixed(2)}</Text>
       </View>
 
-      <View style={theme.tabScrollContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={theme.tabContainer}>
-          {[
-            { key: 'dashboard', label: 'Quick Log' },
-            { key: 'history', label: 'Summary' },
-            { key: 'budget', label: 'Budget' }, 
-            { key: 'transactions', label: 'Transactions' }, 
-            { key: 'accounts', label: 'Accounts' }
-          ].map(tab => (
-            <TouchableOpacity key={tab.key} style={[theme.tab, currentView === tab.key && theme.activeTab]} onPress={() => setCurrentView(tab.key)}>
-              <Text style={[theme.tabText, currentView === tab.key && theme.activeTabText]}>{tab.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      <ScrollView ref={mainScrollRef} style={theme.content} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
-        {currentView === 'dashboard' && (
-          <DashboardScreen 
-            accounts={accounts} expenseAmount={expenseAmount} setExpenseAmount={setExpenseAmount}
-            expenseCategory={expenseCategory} setExpenseCategory={setExpenseCategory}
-            selectedAccountId={selectedAccountId} setSelectedAccountId={setSelectedAccountId}
-            onLogTransaction={handleLogTransaction} 
-            outflowCategories={outflowCategories} inflowCategories={inflowCategories}
-            recurringTransactions={recurringTransactions} onSaveRecurring={handleAddRecurring}
-            onDeleteRecurring={handleDeleteRecurring} scrollRef={mainScrollRef}
-          />
-        )}
+      {/* MAIN DATA MODULE VIEWPORTS CONTAINER PANEL */}
+      {/* FIXED UI: Added extra padding at the bottom of the scroll track to prevent content from being covered by the navigation bar */}
+      <ScrollView 
+        ref={mainScrollRef} 
+        style={theme.content} 
+        contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? 110 : 95 }} 
+        keyboardShouldPersistTaps="handled"
+      >
         {currentView === 'history' && (
           <SummaryScreen accounts={accounts} transactions={transactions} recurringTransactions={recurringTransactions} />
         )}
         {currentView === 'budget' && (
           <BudgetScreen 
             outflowCategories={outflowCategories} transactions={transactions}
-            monthlyBudgets={monthlyBudgets} setMonthlyBudgets={setMonthlyBudgets} // Injected the map state
+            monthlyBudgets={monthlyBudgets} setMonthlyBudgets={setMonthlyBudgets} 
             envelopeAllocations={envelopeAllocations} setEnvelopeAllocations={setEnvelopeAllocations}
             onSaveCache={syncEnvelopeCache} scrollRef={mainScrollRef}
           />
@@ -504,6 +487,61 @@ export default function App() {
           />
         )}
       </ScrollView>
+
+      {/* FIXED UI: REACTIVE BOTTOM-RIGHT INTERACTIVE FAB SWITCHER */}
+      <TouchableOpacity 
+        style={[theme.fabButton, quickLogModalVisible && theme.fabButtonActive]}
+        activeOpacity={0.855}
+        onPress={() => setQuickLogModalVisible(!quickLogModalVisible)}
+      >
+        <Text style={theme.fabButtonText}>
+          {quickLogModalVisible ? '−' : '+'}
+        </Text>
+      </TouchableOpacity>
+
+      {/* FIXED UI: TRANSLUCENT FIXED BOTTOM BAR NAVIGATION DECK */}
+      <View style={theme.bottomTabBar}>
+        {[
+          { key: 'history', label: 'Summary', icon: '📊' },
+          { key: 'budget', label: 'Budget', icon: '✉️' },
+          { key: 'transactions', label: 'Ledger', icon: '📝' },
+          { key: 'accounts', label: 'Vault', icon: '💳' }
+        ].map(tab => {
+          const isTabActive = currentView === tab.key;
+          return (
+            <TouchableOpacity 
+              key={tab.key} 
+              style={theme.bottomTabTab} 
+              activeOpacity={0.7}
+              onPress={() => setCurrentView(tab.key)}
+            >
+              <Text style={[theme.bottomTabIconPlaceholder, { opacity: isTabActive ? 1.0 : 0.5 }]}>
+                {tab.icon}
+              </Text>
+              <Text style={[theme.bottomTabText, isTabActive && theme.activeBottomTabText]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* GLOBAL MODALS AND OVERLAYS LAYER */}
+      <QuickLogModal 
+        visible={quickLogModalVisible}
+        setVisible={setQuickLogModalVisible}
+        accounts={accounts}
+        outflowCategories={outflowCategories}
+        inflowCategories={inflowCategories}
+        expenseAmount={expenseAmount}
+        setExpenseAmount={setExpenseAmount}
+        expenseCategory={expenseCategory}
+        setExpenseCategory={setExpenseCategory}
+        selectedAccountId={selectedAccountId}
+        setSelectedAccountId={setSelectedAccountId}
+        onLogTransaction={handleLogTransaction}
+        onSaveRecurring={handleAddRecurring}
+      />
 
       <ReconciliationModal 
         visible={reconModalVisible} setVisible={setReconModalVisible}
