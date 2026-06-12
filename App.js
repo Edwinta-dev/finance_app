@@ -7,6 +7,7 @@ import { DashboardScreen } from './src/screens/DashboardScreen.js';
 import { SummaryScreen } from './src/screens/SummaryScreen.js';
 import { TransactionsScreen } from './src/screens/TransactionsScreen.js'; 
 import { AccountsScreen } from './src/screens/AccountsScreen.js';
+import { BudgetScreen } from './src/screens/BudgetScreen.js'; // Injected new module screen
 import { ReconciliationModal } from './src/components/ReconciliationModal.js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -21,6 +22,10 @@ export default function App() {
   const [inflowCategories, setInflowCategories] = useState(['Salary', 'Investments', 'Bank Interest', 'Reimbursement', 'Side Hustle']);
   const [recurringTransactions, setRecurringTransactions] = useState([]);
 
+  // --- NEW: ENVELOPE BUDGET ENGINE STATES ---
+  const [monthlyBudgetCap, setMonthlyBudgetCap] = useState(2000); // Baseline default overall cap
+  const [envelopeAllocations, setEnvelopeAllocations] = useState({}); // Stores mapping format: { Food: 500, Transport: 150 }
+
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
@@ -31,10 +36,12 @@ export default function App() {
   const [reconNewBalance, setReconNewBalance] = useState('');
 
   useEffect(() => {
+    // Intercept cold-start link triggers
     Linking.getInitialURL().then(url => {
       if (url) processIncomingDeepAction(url);
     });
 
+    // Intercept background wake-up links
     const urlSubscription = Linking.addEventListener('url', (event) => {
       if (event.url) processIncomingDeepAction(event.url);
     });
@@ -91,12 +98,19 @@ export default function App() {
       const storedInflowCats = await AsyncStorage.getItem('@budget_inflow_categories');
       const storedRecs = await AsyncStorage.getItem('@budget_recurring');
       
+      // Load envelope database logs safely
+      const storedCap = await AsyncStorage.getItem('@budget_monthly_global_cap');
+      const storedEnvelopes = await AsyncStorage.getItem('@budget_envelope_allocations');
+      
       let parsedAccs = storedAccs ? JSON.parse(storedAccs) : [];
       let parsedTxs = storedTxs ? JSON.parse(storedTxs) : [];
       
       if (storedOutflowCats) setOutflowCategories(JSON.parse(storedOutflowCats));
       if (storedInflowCats) setInflowCategories(JSON.parse(storedInflowCats));
       if (storedRecs) setRecurringTransactions(JSON.parse(storedRecs));
+
+      if (storedCap) setMonthlyBudgetCap(parseFloat(storedCap));
+      if (storedEnvelopes) setEnvelopeAllocations(JSON.parse(storedEnvelopes));
 
       // --- AUTOMATED MONTHLY INTEREST COMPOUNDING ENGINE ---
       const today = new Date();
@@ -105,23 +119,18 @@ export default function App() {
       let freshSystemTxs = [];
 
       parsedAccs = parsedAccs.map(acc => {
-        // Safe default fallback parameter prevents breaking changes on historical data schemas
         const annualRatePA = acc.interestRate !== undefined ? acc.interestRate : 0.0;
         const lastCompoundedMarker = acc.lastInterestCompoundedMonth || '';
 
-        // Trigger processing loop only when calendar month boundary transitions forward
         if (annualRatePA > 0 && lastCompoundedMarker !== '' && lastCompoundedMarker !== currentYearMonth) {
           const monthlyYieldRate = annualRatePA / 100 / 12;
           const interestEarnedPayout = acc.balance * monthlyYieldRate;
 
           if (interestEarnedPayout > 0.005) {
             interestCompoundedThisSession = true;
-            
-            // 1. Credit account balance
             const adjustedBalance = acc.balance + interestEarnedPayout;
-
-            // 2. Queue automated ledger credit tracking item line
             const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            
             freshSystemTxs.push({
               id: `interest-${acc.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
               accountId: acc.id,
@@ -137,12 +146,11 @@ export default function App() {
               ...acc,
               balance: adjustedBalance,
               interestRate: annualRatePA,
-              lastInterestCompoundedMonth: currentYearMonth // Lock month to prevent duplicate entries
+              lastInterestCompoundedMonth: currentYearMonth
             };
           }
         }
 
-        // Initialize markers on baseline accounts to catch subsequent month transitions
         return {
           ...acc,
           interestRate: annualRatePA,
@@ -158,7 +166,6 @@ export default function App() {
       setAccounts(parsedAccs);
       setTransactions(parsedTxs);
       
-      // Auto-save adjustments cleanly back to persistent local storage disk
       await AsyncStorage.setItem('@budget_accounts', JSON.stringify(parsedAccs));
       await AsyncStorage.setItem('@budget_transactions', JSON.stringify(parsedTxs));
     } catch (e) {
@@ -174,7 +181,17 @@ export default function App() {
       await AsyncStorage.setItem('@budget_inflow_categories', JSON.stringify(inCats));
       await AsyncStorage.setItem('@budget_recurring', JSON.stringify(recs));
     } catch (e) {
-      Alert.alert("Storage Failure", "Disk write write-lock execution exception.");
+      Alert.alert("Storage Failure", "Disk write lock exception.");
+    }
+  };
+
+  // FIXED: Sync envelope allocations data parameters safely to file cache keys
+  const syncEnvelopeCache = async (nextCapValue, nextAllocationsObject) => {
+    try {
+      await AsyncStorage.setItem('@budget_monthly_global_cap', String(nextCapValue));
+      await AsyncStorage.setItem('@budget_envelope_allocations', JSON.stringify(nextAllocationsObject));
+    } catch (e) {
+      Alert.alert("Storage Failure", "Envelope partition write lock error.");
     }
   };
 
@@ -188,7 +205,7 @@ export default function App() {
       name: newAccountName, 
       balance: parseFloat(newAccountBalance), 
       isFavorite: accounts.length === 0,
-      interestRate: 0.0, // Default interest rate to 0.0% P.A.
+      interestRate: 0.0,
       lastInterestCompoundedMonth: currentYearMonth
     }];
     setAccounts(updated);
@@ -203,7 +220,6 @@ export default function App() {
     syncCache(updated, transactions, outflowCategories, inflowCategories, recurringTransactions);
   };
 
-  // FIXED: Added dedicated callback controller routine to modify specific account interest rates
   const handleUpdateInterestRate = (accountId, configuredPercentagePA) => {
     const updated = accounts.map(acc => {
       if (acc.id === accountId) {
@@ -369,6 +385,7 @@ export default function App() {
           {[
             { key: 'dashboard', label: 'Quick Log' },
             { key: 'history', label: 'Summary' },
+            { key: 'budget', label: 'Budget' }, // FIXED: Integrated Envelope Budget sliding tab link
             { key: 'transactions', label: 'Transactions' }, 
             { key: 'accounts', label: 'Accounts' }
           ].map(tab => (
@@ -392,10 +409,19 @@ export default function App() {
           />
         )}
         {currentView === 'history' && (
-          <SummaryScreen 
-            accounts={accounts} 
-            transactions={transactions} 
-            recurringTransactions={recurringTransactions} // FIXED: Passed recurring rules down to the summary view layer
+          <SummaryScreen accounts={accounts} transactions={transactions} recurringTransactions={recurringTransactions} />
+        )}
+        {/* FIXED: Dynamic Mounting for Envelope Budget Controller view screen */}
+        {currentView === 'budget' && (
+          <BudgetScreen 
+            outflowCategories={outflowCategories}
+            transactions={transactions}
+            monthlyBudgetCap={monthlyBudgetCap}
+            setMonthlyBudgetCap={setMonthlyBudgetCap}
+            envelopeAllocations={envelopeAllocations}
+            setEnvelopeAllocations={setEnvelopeAllocations}
+            onSaveCache={syncEnvelopeCache}
+            scrollRef={mainScrollRef}
           />
         )}
         {currentView === 'transactions' && (
@@ -411,7 +437,7 @@ export default function App() {
             outflowCategories={outflowCategories} inflowCategories={inflowCategories}
             onAddOutflowCategory={handleAddOutflowCategory} onDeleteOutflowCategory={handleDeleteOutflowCategory}
             onAddInflowCategory={handleAddInflowCategory} onDeleteInflowCategory={handleDeleteInflowCategory}
-            onUpdateInterestRate={handleUpdateInterestRate} // Registered rate channel link
+            onUpdateInterestRate={handleUpdateInterestRate}
             scrollRef={mainScrollRef} 
           />
         )}
