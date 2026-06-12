@@ -1,154 +1,199 @@
 // src/components/BudgetGraph.js
-import React from 'react';
-import { View, Text } from 'react-native';
-import Svg, { Polyline, Circle } from 'react-native-svg';
-import { theme, screenWidth } from '../styles/theme';
+import React, { useMemo } from 'react';
+import { View } from 'react-native';
+import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
+import { screenWidth } from '../styles/theme.js';
 
-export function BudgetGraph({ accounts, transactions, isExpenseType }) {
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const current = new Date();
-  const currentMonth = current.getMonth();
-  const currentYear = current.getFullYear();
-  
-  // Generate the 5-month timeline window array [Now-2, Now-1, Now, Now+1, Now+2]
-  const timeline = [];
-  for (let i = -2; i <= 2; i++) {
-    const targetDate = new Date(currentYear, currentMonth + i, 1);
-    timeline.push({ 
-      label: monthNames[targetDate.getMonth()], 
-      monthIndex: targetDate.getMonth(),
-      year: targetDate.getFullYear(),
-      offset: i 
-    });
+function getYearMonthStr(dateStr) {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  if (clean.includes('-')) {
+    const parts = clean.split('-');
+    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}`;
   }
+  if (clean.includes('/')) {
+    const parts = clean.split('/');
+    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}`; 
+    if (parts[2] && parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}`; 
+  }
+  return '';
+}
 
-  const chartWidth = screenWidth - 70;
-  const containerHeight = 130;
-  const totalFinancialResources = accounts.reduce((sum, acc) => sum + acc.balance, 0);
+export function BudgetGraph({ accounts, transactions, recurringTransactions, isExpenseType }) {
+  const graphWidth = screenWidth - 60;
+  const graphHeight = 180; 
+  
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  
+  const today = new Date();
+  const currentMonthIdx = today.getMonth(); 
+  const currentYear = today.getFullYear();
 
-  // --- BULLETPROOF RAW INTEGER CALCULATION PIPELINE ---
-  const values = timeline.map(t => {
-    // RULE 1: Future months strictly evaluate to 0
-    if (t.offset > 0) {
-      return 0;
+  const timelinePoints = useMemo(() => {
+    const points = [];
+    for (let i = -3; i <= 2; i++) {
+      let targetMonth = currentMonthIdx + i;
+      let targetYear = currentYear;
+      if (targetMonth < 0) {
+        targetMonth += 12;
+        targetYear -= 1;
+      } else if (targetMonth > 11) {
+        targetMonth -= 12;
+        targetYear += 1;
+      }
+      points.push({
+        monthLabel: monthLabels[targetMonth],
+        monthKey: `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}`,
+        isFuture: i > 0,
+        offset: i
+      });
     }
+    return points;
+  }, [currentMonthIdx, currentYear]);
 
-    if (isExpenseType) {
-      // EXPENSE TRAFFIC CALCULATOR
-      return transactions.filter(tx => {
-        if (tx.type !== 'Expense') return false;
-        
-        let txMonth, txYear;
-        
-        // Safe manual string split to bypass brittle Hermes date engine bugs
-        if (tx.date.includes('-')) {
-          const parts = tx.date.split('-'); // YYYY-MM-DD standard format
-          txYear = parseInt(parts[0], 10);
-          txMonth = parseInt(parts[1], 10) - 1; // Align to 0-indexed months
-        } else if (tx.date.includes('/')) {
-          const parts = tx.date.split('/'); // Backwards compatibility for old M/D/YYYY records
-          txMonth = parseInt(parts[0], 10) - 1;
-          txYear = parseInt(parts[2], 10);
+  const finalGraphDataPoints = useMemo(() => {
+    const currentNetWorth = accounts.reduce((sum, acc) => sum + acc.balance, 0);
+    
+    // 1. Bank Interest Yield
+    const totalMonthlyInterestYield = accounts.reduce((sum, acc) => {
+      const ratePA = acc.interestRate || 0.0;
+      return sum + (acc.balance * (ratePA / 100 / 12));
+    }, 0);
+
+    // 2. FIXED: Normalize recurring transaction intervals into monthly equivalents
+    const totalMonthlyRecurringImpact = (recurringTransactions || []).reduce((sum, rec) => {
+      let monthlyNormalizedAmount = rec.amount;
+      if (rec.frequency === 'Weekly') monthlyNormalizedAmount = rec.amount * (52 / 12);
+      else if (rec.frequency === 'Bi-Weekly') monthlyNormalizedAmount = rec.amount * (26 / 12);
+      else if (rec.frequency === 'Annual') monthlyNormalizedAmount = rec.amount / 12;
+
+      return sum + (rec.isIncoming ? monthlyNormalizedAmount : -monthlyNormalizedAmount);
+    }, 0);
+
+    // 3. Historical Spending Averages
+    const expenseTransactions = transactions.filter(tx => tx.type === 'Expense');
+    const totalHistoricalExpenses = expenseTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+    
+    // FIXED: HIGH-PERFORMANCE PRE-AGGREGATION PASS ($O(N)$ Linear Optimization)
+    // Flattens the transaction history into a temporary map *once*, avoiding nested loops.
+    const monthlyNetDeltaMap = {};
+    const monthlyExpenseMap = {};
+    
+    transactions.forEach(tx => {
+      const txKey = getYearMonthStr(tx.date);
+      if (!txKey) return;
+      
+      if (!monthlyNetDeltaMap[txKey]) monthlyNetDeltaMap[txKey] = 0;
+      if (!monthlyExpenseMap[txKey]) monthlyExpenseMap[txKey] = 0;
+
+      if (tx.type === 'Expense') {
+        monthlyNetDeltaMap[txKey] -= tx.amount;
+        monthlyExpenseMap[txKey] += tx.amount;
+      } else if (tx.type === 'Inflow Credit') {
+        monthlyNetDeltaMap[txKey] += tx.amount;
+      } else if (tx.type === 'Balance Adjustment') {
+        if (tx.note && tx.note.includes('Up')) monthlyNetDeltaMap[txKey] += tx.amount;
+        else monthlyNetDeltaMap[txKey] -= tx.amount;
+      }
+    });
+
+    const historicalMonthKeys = Object.keys(monthlyNetDeltaMap);
+    const uniqueMonthsCount = historicalMonthKeys.length > 0 ? historicalMonthKeys.length : 1;
+    const averageMonthlySpending = totalHistoricalExpenses / uniqueMonthsCount;
+
+    return timelinePoints.map(point => {
+      let dataValue = 0;
+
+      if (isExpenseType) {
+        if (point.offset > 0) {
+          dataValue = averageMonthlySpending;
         } else {
-          return false;
+          dataValue = monthlyExpenseMap[point.monthKey] || 0;
         }
-        
-        return txMonth === t.monthIndex && txYear === t.year;
-      }).reduce((sum, tx) => sum + tx.amount, 0);
-
-    } else {
-      // NET WORTH CURVE GENERATOR
-      // Rule 2: Current month displays live active total sums
-      if (t.offset === 0) {
-        return totalFinancialResources;
+      } else {
+        // --- NET WORTH GRAPH FORWARD/BACKWARD FORECAST ---
+        if (point.offset === 0) {
+          dataValue = currentNetWorth;
+        } else if (point.offset > 0) {
+          // FIXED: Integrated yields, average spending, and recurring transaction rules into projections
+          const netMonthlyDeltaMultiplier = totalMonthlyInterestYield - averageMonthlySpending + totalMonthlyRecurringImpact;
+          dataValue = currentNetWorth + (point.offset * netMonthlyDeltaMultiplier);
+        } else {
+          // Backward calculation reads directly from pre-computed map keys
+          let backtrackedBalanceAdjustment = 0;
+          historicalMonthKeys.forEach(key => {
+            if (key > point.monthKey) {
+              backtrackedBalanceAdjustment -= monthlyNetDeltaMap[key]; // Reverse delta movement safely
+            }
+          });
+          dataValue = currentNetWorth + backtrackedBalanceAdjustment;
+        }
       }
 
-      // Rule 3: Reconstruct past points by reversing chronological adjustments
-      let netWorthSnap = totalFinancialResources;
+      return { ...point, value: dataValue > 0 ? dataValue : 0 };
+    });
+  }, [accounts, transactions, recurringTransactions, isExpenseType, timelinePoints]);
 
-      transactions.forEach(tx => {
-        let txMonth, txYear;
-        
-        if (tx.date.includes('-')) {
-          const parts = tx.date.split('-');
-          txYear = parseInt(parts[0], 10);
-          txMonth = parseInt(parts[1], 10) - 1;
-        } else if (tx.date.includes('/')) {
-          const parts = tx.date.split('/');
-          txMonth = parseInt(parts[0], 10) - 1;
-          txYear = parseInt(parts[2], 10);
-        } else {
-          return;
-        }
+  const { peakDataValue, minDataValue, valueDeltaRange } = useMemo(() => {
+    const peak = Math.max(...finalGraphDataPoints.map(p => p.value), 10);
+    const min = Math.min(...finalGraphDataPoints.map(p => p.value), 0);
+    return { peakDataValue: peak, minDataValue: min, valueDeltaRange: peak - min };
+  }, [finalGraphDataPoints]);
 
-        // Identify if a transaction occurred AFTER this historical evaluation point closed
-        const isExecutedAfterThisMonth = (txYear > t.year) || (txYear === t.year && txMonth > t.monthIndex);
-        
-        if (isExecutedAfterThisMonth) {
-          if (tx.type === 'Expense') {
-            netWorthSnap += tx.amount; // Add back spent resources to map history backward
-          } else if (tx.type === 'Balance Adjustment') {
-            // Reverse manual reconciliation tweaks
-            if (tx.note && tx.note.includes("Up")) netWorthSnap -= tx.amount;
-            else netWorthSnap += tx.amount;
-          }
-        }
-      });
-
-      return netWorthSnap > 0 ? netWorthSnap : 0;
-    }
-  });
-
-  // Calculate chart metrics headroom boundaries safely
-  const maxVal = Math.max(...values, 100) * 1.15;
-  
-  const coordinates = values.map((val, i) => {
-    const barHeight = (val / maxVal) * containerHeight;
-    return {
-      x: (chartWidth / 5) * i + (chartWidth / 5) / 2,
-      y: containerHeight - barHeight
-    };
-  });
-
-  const polylinePointsString = coordinates.map(p => `${p.x},${p.y}`).join(' ');
-  const strokeColor = isExpenseType ? '#fb923c' : '#4ade80'; 
-  const barColor = isExpenseType ? '#f87171' : '#0ea5e9';
+  const spacingOffset = (graphWidth / finalGraphDataPoints.length);
+  const barColumnWidth = spacingOffset - 24; 
 
   return (
-    <View style={{ width: chartWidth }}>
-      <View style={{ height: containerHeight, width: chartWidth, position: 'relative' }}>
-        {/* Render Bar Metrics */}
-        <View style={{ flexDirection: 'row', width: chartWidth, height: containerHeight, position: 'absolute' }}>
-          {values.map((val, i) => {
-            const barHeight = (val / maxVal) * containerHeight;
-            return (
-              <View key={i} style={{ flex: 1, alignItems: 'center', justifyContent: 'flex-end' }}>
-                <Text style={theme.graphValueLabel}>{val > 0 ? `$${Math.round(val)}` : '$0'}</Text>
-                <View style={{ width: 22, height: Math.max(barHeight, 0), backgroundColor: barColor, borderRadius: 4 }} />
-              </View>
-            );
-          })}
-        </View>
+    <View style={{ alignItems: 'center', marginVertical: 5 }}>
+      <Svg height={graphHeight} width={graphWidth}>
+        <Line x1="0" y1={graphHeight - 25} x2={graphWidth} y2={graphHeight - 25} stroke="#334155" strokeWidth="1" />
 
-        {/* Render Connected Mathematical Polyline Overlay */}
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
-          <Svg height={containerHeight} width={chartWidth}>
-            <Polyline points={polylinePointsString} fill="none" stroke={strokeColor} strokeWidth="2" />
-            {coordinates.map((p, i) => (
-              <Circle key={i} cx={p.x} cy={p.y} r="4" fill="#1e293b" stroke={strokeColor} strokeWidth="2" />
-            ))}
-          </Svg>
-        </View>
-      </View>
+        {finalGraphDataPoints.map((point, index) => {
+          const xCoordinate = (index * spacingOffset) + (spacingOffset - barColumnWidth) / 2;
+          const normalizedBarHeight = valueDeltaRange > 0 
+            ? ((point.value - minDataValue) / valueDeltaRange) * (graphHeight - 65) 
+            : 10;
+          
+          const yCoordinate = graphHeight - 25 - normalizedBarHeight;
+          const targetedOpacity = point.isFuture ? 0.4 : 1.0;
+          const conditionalColorFill = isExpenseType ? '#f87171' : '#38bdf8';
 
-      {/* Render X Axis Timestamps */}
-      <View style={theme.xAxisRow}>
-        {timeline.map((t, i) => (
-          <Text key={i} style={[theme.xAxisLabel, t.offset === 0 && (isExpenseType ? { color: '#f87171', fontWeight: '700' } : theme.activeXAxisLabel)]}>
-            {t.label}{t.offset === 0 ? '\nNow' : ''}
-          </Text>
-        ))}
-      </View>
+          return (
+            <G key={index} opacity={targetedOpacity}>
+              <SvgText
+                x={xCoordinate + barColumnWidth / 2}
+                y={yCoordinate - 8}
+                fill={point.isFuture ? '#64748b' : '#cbd5e1'}
+                fontSize="9"
+                fontWeight="700"
+                textAnchor="middle"
+              >
+                {`$${Math.round(point.value)}`}
+              </SvgText>
+
+              <Rect
+                x={xCoordinate}
+                y={yCoordinate}
+                width={barColumnWidth}
+                height={normalizedBarHeight > 0 ? normalizedBarHeight : 2}
+                fill={conditionalColorFill}
+                rx="3"
+              />
+
+              <SvgText
+                x={xCoordinate + barColumnWidth / 2}
+                y={graphHeight - 6}
+                fill={point.offset === 0 ? '#38bdf8' : '#64748b'}
+                fontSize="11"
+                fontWeight={point.offset === 0 ? '700' : '500'}
+                textAnchor="middle"
+              >
+                {point.monthLabel}
+              </SvgText>
+            </G>
+          );
+        })}
+      </Svg>
     </View>
   );
 }

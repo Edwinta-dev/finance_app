@@ -17,7 +17,6 @@ export default function App() {
   const [transactions, setTransactions] = useState([]);
   const [currentView, setCurrentView] = useState('dashboard');
   
-  // FIXED: Split unified categories array into distinct Outflow and Inflow state collections
   const [outflowCategories, setOutflowCategories] = useState(['Food', 'Transport', 'Groceries', 'Utilities', 'Personal', 'Miscellaneous', 'Health']);
   const [inflowCategories, setInflowCategories] = useState(['Salary', 'Investments', 'Bank Interest', 'Reimbursement', 'Side Hustle']);
   const [recurringTransactions, setRecurringTransactions] = useState([]);
@@ -32,12 +31,10 @@ export default function App() {
   const [reconNewBalance, setReconNewBalance] = useState('');
 
   useEffect(() => {
-    // Intercept cold-start link triggers
     Linking.getInitialURL().then(url => {
       if (url) processIncomingDeepAction(url);
     });
 
-    // Intercept background wake-up links
     const urlSubscription = Linking.addEventListener('url', (event) => {
       if (event.url) processIncomingDeepAction(event.url);
     });
@@ -69,7 +66,6 @@ export default function App() {
       }
       
       if (extractedCategory) {
-        // Fallback search checks both split branches cleanly
         const standardizedCat = [...outflowCategories, ...inflowCategories].find(
           c => c.toLowerCase() === extractedCategory.toLowerCase().trim()
         );
@@ -95,11 +91,76 @@ export default function App() {
       const storedInflowCats = await AsyncStorage.getItem('@budget_inflow_categories');
       const storedRecs = await AsyncStorage.getItem('@budget_recurring');
       
-      if (storedAccs) setAccounts(JSON.parse(storedAccs));
-      if (storedTxs) setTransactions(JSON.parse(storedTxs));
+      let parsedAccs = storedAccs ? JSON.parse(storedAccs) : [];
+      let parsedTxs = storedTxs ? JSON.parse(storedTxs) : [];
+      
       if (storedOutflowCats) setOutflowCategories(JSON.parse(storedOutflowCats));
       if (storedInflowCats) setInflowCategories(JSON.parse(storedInflowCats));
       if (storedRecs) setRecurringTransactions(JSON.parse(storedRecs));
+
+      // --- AUTOMATED MONTHLY INTEREST COMPOUNDING ENGINE ---
+      const today = new Date();
+      const currentYearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+      let interestCompoundedThisSession = false;
+      let freshSystemTxs = [];
+
+      parsedAccs = parsedAccs.map(acc => {
+        // Safe default fallback parameter prevents breaking changes on historical data schemas
+        const annualRatePA = acc.interestRate !== undefined ? acc.interestRate : 0.0;
+        const lastCompoundedMarker = acc.lastInterestCompoundedMonth || '';
+
+        // Trigger processing loop only when calendar month boundary transitions forward
+        if (annualRatePA > 0 && lastCompoundedMarker !== '' && lastCompoundedMarker !== currentYearMonth) {
+          const monthlyYieldRate = annualRatePA / 100 / 12;
+          const interestEarnedPayout = acc.balance * monthlyYieldRate;
+
+          if (interestEarnedPayout > 0.005) {
+            interestCompoundedThisSession = true;
+            
+            // 1. Credit account balance
+            const adjustedBalance = acc.balance + interestEarnedPayout;
+
+            // 2. Queue automated ledger credit tracking item line
+            const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            freshSystemTxs.push({
+              id: `interest-${acc.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+              accountId: acc.id,
+              accountName: acc.name,
+              amount: interestEarnedPayout,
+              category: 'Bank Interest',
+              type: 'Inflow Credit',
+              date: formattedDate,
+              note: `Automated Interest Compound (${annualRatePA}% P.A.)`
+            });
+
+            return {
+              ...acc,
+              balance: adjustedBalance,
+              interestRate: annualRatePA,
+              lastInterestCompoundedMonth: currentYearMonth // Lock month to prevent duplicate entries
+            };
+          }
+        }
+
+        // Initialize markers on baseline accounts to catch subsequent month transitions
+        return {
+          ...acc,
+          interestRate: annualRatePA,
+          lastInterestCompoundedMonth: acc.lastInterestCompoundedMonth || currentYearMonth
+        };
+      });
+
+      if (interestCompoundedThisSession) {
+        parsedTxs = [...freshSystemTxs, ...parsedTxs];
+        Alert.alert("Interest Compounded", "New automated monthly interest earnings have been calculated and credited across your asset portfolios.");
+      }
+
+      setAccounts(parsedAccs);
+      setTransactions(parsedTxs);
+      
+      // Auto-save adjustments cleanly back to persistent local storage disk
+      await AsyncStorage.setItem('@budget_accounts', JSON.stringify(parsedAccs));
+      await AsyncStorage.setItem('@budget_transactions', JSON.stringify(parsedTxs));
     } catch (e) {
       Alert.alert("Data Failure", "Failed to resolve device persistent file mapping logs.");
     }
@@ -117,15 +178,19 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    const favorite = accounts.find(acc => acc.isFavorite);
-    if (favorite) setSelectedAccountId(favorite.id);
-    else if (accounts.length > 0 && !selectedAccountId) setSelectedAccountId(accounts[0].id);
-  }, [accounts]);
-
   const handleCreateAccount = () => {
     if (!newAccountName || !newAccountBalance) return Alert.alert("Error", "Fill required configurations.");
-    const updated = [...accounts, { id: Date.now().toString(), name: newAccountName, balance: parseFloat(newAccountBalance), isFavorite: accounts.length === 0 }];
+    const today = new Date();
+    const currentYearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    
+    const updated = [...accounts, { 
+      id: Date.now().toString(), 
+      name: newAccountName, 
+      balance: parseFloat(newAccountBalance), 
+      isFavorite: accounts.length === 0,
+      interestRate: 0.0, // Default interest rate to 0.0% P.A.
+      lastInterestCompoundedMonth: currentYearMonth
+    }];
     setAccounts(updated);
     syncCache(updated, transactions, outflowCategories, inflowCategories, recurringTransactions);
     setNewAccountName('');
@@ -134,6 +199,18 @@ export default function App() {
 
   const handleSetFavorite = (id) => {
     const updated = accounts.map(acc => ({ ...acc, isFavorite: acc.id === id }));
+    setAccounts(updated);
+    syncCache(updated, transactions, outflowCategories, inflowCategories, recurringTransactions);
+  };
+
+  // FIXED: Added dedicated callback controller routine to modify specific account interest rates
+  const handleUpdateInterestRate = (accountId, configuredPercentagePA) => {
+    const updated = accounts.map(acc => {
+      if (acc.id === accountId) {
+        return { ...acc, interestRate: parseFloat(configuredPercentagePA) || 0.0 };
+      }
+      return acc;
+    });
     setAccounts(updated);
     syncCache(updated, transactions, outflowCategories, inflowCategories, recurringTransactions);
   };
@@ -205,12 +282,11 @@ export default function App() {
 
         setAccounts(updatedAccs);
         setTransactions(updatedTxs);
-        syncCache(updatedAccs, updatedTxs, outflowCategories, inflowCategories, recurringTransactions);
+        syncCache(updatedAccs, updatedTxs, outflowCategories, inflowCategories, updatedTxs);
       }}
     ]);
   };
 
-  // FIXED: Added decoupled handlers for separate outflow vs inflow list operations
   const handleAddOutflowCategory = (newCat) => {
     if (outflowCategories.includes(newCat)) return;
     const updated = [...outflowCategories, newCat];
@@ -310,30 +386,35 @@ export default function App() {
             expenseCategory={expenseCategory} setExpenseCategory={setExpenseCategory}
             selectedAccountId={selectedAccountId} setSelectedAccountId={setSelectedAccountId}
             onLogTransaction={handleLogTransaction} 
-            outflowCategories={outflowCategories} inflowCategories={inflowCategories} // Split injection
+            outflowCategories={outflowCategories} inflowCategories={inflowCategories}
             recurringTransactions={recurringTransactions} onSaveRecurring={handleAddRecurring}
             onDeleteRecurring={handleDeleteRecurring} scrollRef={mainScrollRef}
           />
         )}
         {currentView === 'history' && (
-          <SummaryScreen accounts={accounts} transactions={transactions} />
+          <SummaryScreen 
+            accounts={accounts} 
+            transactions={transactions} 
+            recurringTransactions={recurringTransactions} // FIXED: Passed recurring rules down to the summary view layer
+          />
         )}
         {currentView === 'transactions' && (
           <TransactionsScreen accounts={accounts} transactions={transactions} onDeleteTransaction={handleDeleteTransaction} />
         )}
         {currentView === 'accounts' && (
-                  <AccountsScreen 
-                    accounts={accounts} newAccountName={newAccountName} setNewAccountName={setNewAccountName}
-                    newAccountBalance={newAccountBalance} setNewAccountBalance={setNewAccountBalance}
-                    onCreateAccount={handleCreateAccount} onSetFavorite={handleSetFavorite}
-                    onTriggerReconcile={(id) => { setReconAccountId(id); setReconModalVisible(true); }}
-                    onDeleteAccount={handleDeleteAccount} 
-                    outflowCategories={outflowCategories} inflowCategories={inflowCategories}
-                    onAddOutflowCategory={handleAddOutflowCategory} onDeleteOutflowCategory={handleDeleteOutflowCategory}
-                    onAddInflowCategory={handleAddInflowCategory} onDeleteInflowCategory={handleDeleteInflowCategory}
-                    scrollRef={mainScrollRef} // Aligned here to allow inside component auto-scrolling
-                  />
-                )}
+          <AccountsScreen 
+            accounts={accounts} newAccountName={newAccountName} setNewAccountName={setNewAccountName}
+            newAccountBalance={newAccountBalance} setNewAccountBalance={setNewAccountBalance}
+            onCreateAccount={handleCreateAccount} onSetFavorite={handleSetFavorite}
+            onTriggerReconcile={(id) => { setReconAccountId(id); setReconModalVisible(true); }}
+            onDeleteAccount={handleDeleteAccount} 
+            outflowCategories={outflowCategories} inflowCategories={inflowCategories}
+            onAddOutflowCategory={handleAddOutflowCategory} onDeleteOutflowCategory={handleDeleteOutflowCategory}
+            onAddInflowCategory={handleAddInflowCategory} onDeleteInflowCategory={handleDeleteInflowCategory}
+            onUpdateInterestRate={handleUpdateInterestRate} // Registered rate channel link
+            scrollRef={mainScrollRef} 
+          />
+        )}
       </ScrollView>
 
       <ReconciliationModal 
