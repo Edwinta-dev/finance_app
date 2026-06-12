@@ -22,7 +22,8 @@ export default function App() {
   const [inflowCategories, setInflowCategories] = useState(['Salary', 'Investments', 'Bank Interest', 'Reimbursement', 'Side Hustle']);
   const [recurringTransactions, setRecurringTransactions] = useState([]);
 
-  const [monthlyBudgetCap, setMonthlyBudgetCap] = useState(2000); 
+  // FIXED: Replaced loose flat numerical budget ceiling state hook with a persistent timebound map index
+  const [monthlyBudgets, setMonthlyBudgets] = useState({}); 
   const [envelopeAllocations, setEnvelopeAllocations] = useState({}); 
 
   const [newAccountName, setNewAccountName] = useState('');
@@ -94,7 +95,9 @@ export default function App() {
       const storedOutflowCats = await AsyncStorage.getItem('@budget_outflow_categories');
       const storedInflowCats = await AsyncStorage.getItem('@budget_inflow_categories');
       const storedRecs = await AsyncStorage.getItem('@budget_recurring');
-      const storedCap = await AsyncStorage.getItem('@budget_monthly_global_cap');
+      
+      // FIXED: Loading historical map logs safely from separate slots
+      const storedBudgetsMap = await AsyncStorage.getItem('@budget_monthly_caps_map');
       const storedEnvelopes = await AsyncStorage.getItem('@budget_envelope_allocations');
       
       let parsedAccs = storedAccs ? JSON.parse(storedAccs) : [];
@@ -103,11 +106,21 @@ export default function App() {
       if (storedOutflowCats) setOutflowCategories(JSON.parse(storedOutflowCats));
       if (storedInflowCats) setInflowCategories(JSON.parse(storedInflowCats));
       if (storedRecs) setRecurringTransactions(JSON.parse(storedRecs));
-      if (storedCap) setMonthlyBudgetCap(parseFloat(storedCap));
-      if (storedEnvelopes) setEnvelopeAllocations(JSON.parse(storedEnvelopes));
 
       const today = new Date();
       const currentYearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+
+      if (storedBudgetsMap) {
+        setMonthlyBudgets(JSON.parse(storedBudgetsMap));
+      } else {
+        // Migration fallback logic seamlessly tracks forward existing users
+        const legacyCap = await AsyncStorage.getItem('@budget_monthly_global_cap');
+        setMonthlyBudgets({ [currentYearMonth]: legacyCap ? parseFloat(legacyCap) : 2000 });
+      }
+
+      if (storedEnvelopes) setEnvelopeAllocations(JSON.parse(storedEnvelopes));
+
+      // --- AUTOMATED MONTHLY INTEREST COMPOUNDING ENGINE ---
       let interestCompoundedThisSession = false;
       let freshSystemTxs = [];
 
@@ -187,9 +200,10 @@ export default function App() {
     }
   };
 
-  const syncEnvelopeCache = async (nextCapValue, nextAllocationsObject) => {
+  // FIXED: Adjusted synchronization handler signatures to receive and commit entire maps cleanly
+  const syncEnvelopeCache = async (nextBudgetsMap, nextAllocationsObject) => {
     try {
-      await AsyncStorage.setItem('@budget_monthly_global_cap', String(nextCapValue));
+      await AsyncStorage.setItem('@budget_monthly_caps_map', JSON.stringify(nextBudgetsMap));
       await AsyncStorage.setItem('@budget_envelope_allocations', JSON.stringify(nextAllocationsObject));
     } catch (e) {
       Alert.alert("Storage Failure", "Envelope partition write lock error.");
@@ -421,7 +435,6 @@ export default function App() {
     ]);
   };
 
-  // FIXED: Explicit variable declaration safely placed directly before the return tree
   const totalFinancialResources = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
   return (
@@ -465,19 +478,16 @@ export default function App() {
         {currentView === 'budget' && (
           <BudgetScreen 
             outflowCategories={outflowCategories} transactions={transactions}
-            monthlyBudgetCap={monthlyBudgetCap} setMonthlyBudgetCap={setMonthlyBudgetCap}
+            monthlyBudgets={monthlyBudgets} setMonthlyBudgets={setMonthlyBudgets} // Injected the map state
             envelopeAllocations={envelopeAllocations} setEnvelopeAllocations={setEnvelopeAllocations}
             onSaveCache={syncEnvelopeCache} scrollRef={mainScrollRef}
           />
         )}
         {currentView === 'transactions' && (
           <TransactionsScreen 
-            accounts={accounts} 
-            transactions={transactions} 
-            onDeleteTransaction={handleDeleteTransaction} 
-            onEditTransaction={handleEditTransaction} 
-            outflowCategories={outflowCategories} 
-            inflowCategories={inflowCategories} 
+            accounts={accounts} transactions={transactions} 
+            onDeleteTransaction={handleDeleteTransaction} onEditTransaction={handleEditTransaction} 
+            outflowCategories={outflowCategories} inflowCategories={inflowCategories} 
           />
         )}
         {currentView === 'accounts' && (
@@ -490,8 +500,7 @@ export default function App() {
             outflowCategories={outflowCategories} inflowCategories={inflowCategories}
             onAddOutflowCategory={handleAddOutflowCategory} onDeleteOutflowCategory={handleDeleteOutflowCategory}
             onAddInflowCategory={handleAddInflowCategory} onDeleteInflowCategory={handleDeleteInflowCategory}
-            onUpdateInterestRate={handleUpdateInterestRate}
-            scrollRef={mainScrollRef} 
+            onUpdateInterestRate={handleUpdateInterestRate} scrollRef={mainScrollRef} 
           />
         )}
       </ScrollView>

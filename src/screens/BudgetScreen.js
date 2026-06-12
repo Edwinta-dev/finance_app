@@ -2,13 +2,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, ScrollView, 
-  Platform, Keyboard, Animated, Dimensions, Modal // Added core Modal primitive
+  Platform, Keyboard, Animated, Dimensions, Modal 
 } from 'react-native';
 import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
 import { theme, screenWidth } from '../styles/theme.js';
 
 export function BudgetScreen({
-  outflowCategories, transactions, monthlyBudgetCap, setMonthlyBudgetCap,
+  outflowCategories, transactions, monthlyBudgets, setMonthlyBudgets,
   envelopeAllocations, setEnvelopeAllocations, onSaveCache, scrollRef
 }) {
   const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -23,10 +23,20 @@ export function BudgetScreen({
   // Active user-selected tracking keys
   const [selectedConfigCat, setSelectedConfigCat] = useState(outflowCategories[0] || '');
   const [typedAllocationAmount, setTypedAllocationAmount] = useState('');
+  
+  // Local staged state to input initial clean month values
+  const [typedNewBudgetCap, setTypedNewBudgetCap] = useState('');
 
-  // --- NEW: DROPDOWN OVERLAY SELECTOR STATE SEEDING ---
   const [isPickerModalVisible, setIsPickerModalVisible] = useState(false);
-  const [pickerTargetType, setPickerTargetType] = useState('from'); // 'from' or 'to'
+  const [pickerTargetType, setPickerTargetType] = useState('from'); 
+
+  // --- LOCKED TIMEBOUND ANCHOR RESOLUTION ---
+  const today = new Date();
+  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  
+  // Extract locked parameter value
+  const activeCurrentMonthBudgetCap = monthlyBudgets[currentMonthKey] || 0;
+  const isBudgetLockedForThisMonth = activeCurrentMonthBudgetCap > 0;
 
   useEffect(() => {
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -56,7 +66,6 @@ export function BudgetScreen({
     }, 80);
   };
 
-  // --- OPEN EXTENDED MODAL SELECTOR DRAWER ---
   const triggerPickerOverlay = (targetType) => {
     Keyboard.dismiss();
     setPickerTargetType(targetType);
@@ -64,18 +73,26 @@ export function BudgetScreen({
   };
 
   const handleSelectCategoryFromModal = (categoryName) => {
-    if (pickerTargetType === 'from') {
-      setTransferFromCat(categoryName);
-    } else {
-      setTransferToCat(categoryName);
-    }
+    if (pickerTargetType === 'from') setTransferFromCat(categoryName);
+    else setTransferToCat(categoryName);
     setIsPickerModalVisible(false);
   };
 
-  // --- TIME BOUNDARY & SPENDING CALCULATORS ---
-  const today = new Date();
-  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  // --- INITIALIZE MONTH ENVELOPE PLAN LOCK ---
+  const executeLockMonthlyCeiling = () => {
+    const freshCapNum = parseFloat(typedNewBudgetCap);
+    if (isNaN(freshCapNum) || freshCapNum <= 0) {
+      alert("Please enter a valid positive numeric budget limit.");
+      return;
+    }
+    
+    const nextBudgetsMap = { ...monthlyBudgets, [currentMonthKey]: freshCapNum };
+    setMonthlyBudgets(nextBudgetsMap);
+    onSaveCache(nextBudgetsMap, envelopeAllocations);
+    Keyboard.dismiss();
+  };
 
+  // --- TIME BOUNDARY & SPENDING CALCULATORS ---
   const currentMonthSpendingMap = useMemo(() => {
     const mapping = {};
     outflowCategories.forEach(c => { mapping[c] = 0; });
@@ -100,14 +117,13 @@ export function BudgetScreen({
     return outflowCategories.reduce((sum, cat) => sum + (envelopeAllocations[cat] || 0), 0);
   }, [envelopeAllocations, outflowCategories]);
 
-  // --- CONTROLLER EVENTS ---
   const executeSaveAllocation = () => {
     if (!selectedConfigCat) return;
     const amountNum = parseFloat(typedAllocationAmount) || 0;
     
     const nextAllocations = { ...envelopeAllocations, [selectedConfigCat]: amountNum };
     setEnvelopeAllocations(nextAllocations);
-    onSaveCache(monthlyBudgetCap, nextAllocations);
+    onSaveCache(monthlyBudgets, nextAllocations);
     setTypedAllocationAmount('');
     Keyboard.dismiss();
   };
@@ -129,10 +145,9 @@ export function BudgetScreen({
     };
 
     setEnvelopeAllocations(nextAllocations);
-    onSaveCache(monthlyBudgetCap, nextAllocations);
+    onSaveCache(monthlyBudgets, nextAllocations);
     setTransferAmount('');
     Keyboard.dismiss();
-    alert(`Successfully shifted $${amountToMove.toFixed(2)} from ${transferFromCat} to ${transferToCat}!`);
   };
 
   const evaluationChartPoints = useMemo(() => {
@@ -165,17 +180,30 @@ export function BudgetScreen({
       }
     });
 
-    return pastTimelinePoints.map(p => ({
-      label: p.label,
-      actualSpending: aggregationMap[p.key],
-      isOverBudget: aggregationMap[p.key] > monthlyBudgetCap
-    }));
-  }, [transactions, monthlyBudgetCap]);
+    return pastTimelinePoints.map(p => {
+      const pastMonthBudgetCeiling = monthlyBudgets[p.key] || activeCurrentMonthBudgetCap || 2000;
+      const actualExpenses = aggregationMap[p.key];
+      const budgetVarianceDelta = pastMonthBudgetCeiling - actualExpenses;
+
+      return {
+        label: p.label,
+        variance: budgetVarianceDelta
+      };
+    });
+  }, [transactions, monthlyBudgets, activeCurrentMonthBudgetCap]);
 
   const graphW = screenWidth - 60;
-  const graphH = 130;
+  const graphH = 170; 
+  const zeroLineY = graphH / 2; 
   const colSpacing = graphW / evaluationChartPoints.length;
-  const barW = colSpacing - 30;
+  const barW = colSpacing - 32;
+
+  const maxVarianceAbsolutePeak = useMemo(() => {
+    const peaks = evaluationChartPoints.map(p => Math.abs(p.variance));
+    return Math.max(...peaks, 400); 
+  }, [evaluationChartPoints]);
+
+  const geometricScaleFactor = (zeroLineY - 30) / maxVarianceAbsolutePeak;
 
   return (
     <View style={{ flex: 1 }}>
@@ -183,22 +211,40 @@ export function BudgetScreen({
       {/* CARD 1: GLOBAL CONTROL TRAY */}
       <View style={theme.card}>
         <Text style={theme.cardTitle}>Global Envelope Spending Ceiling</Text>
-        <Text style={[theme.bodyText, { marginBottom: 12, color: '#94a3b8', fontSize: 13 }]}>
-          Configure your targeted maximum expenditure limit. Distributed capital: <Text style={{ color: '#38bdf8', fontWeight: 'bold' }}>${totalAllocatedSum.toFixed(0)}</Text> / ${monthlyBudgetCap}
-        </Text>
-        <TextInput
-          style={[theme.input, { fontSize: 16, fontWeight: '700', color: '#f8fafc' }]}
-          placeholder="Monthly Ceiling Cap ($)"
-          placeholderTextColor="#64748b"
-          keyboardType="numeric"
-          value={String(monthlyBudgetCap)}
-          onChangeText={val => {
-            const num = parseFloat(val) || 0;
-            setMonthlyBudgetCap(num);
-            onSaveCache(num, envelopeAllocations);
-          }}
-          onFocus={handleGlobalCapFocus}
-        />
+        
+        {isBudgetLockedForThisMonth ? (
+          <View style={{ backgroundColor: 'rgba(56, 189, 248, 0.08)', borderRadius: 8, padding: 12, marginTop: 4 }}>
+            <Text style={[theme.boldText, { color: '#38bdf8', fontSize: 15 }]}>
+              Unbreakable June Ceiling Limit: ${activeCurrentMonthBudgetCap.toFixed(0)}
+            </Text>
+            <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
+              Distributed capital allocation: ${totalAllocatedSum.toFixed(0)} / ${activeCurrentMonthBudgetCap.toFixed(0)}
+            </Text>
+            <Text style={{ color: '#94a3b8', fontSize: 11, fontStyle: 'italic', marginTop: 4 }}>
+              🔒 Locked. In accordance with zero-sum envelope guidelines, this value cannot be inflated.
+            </Text>
+          </View>
+        ) : (
+          <View>
+            <Text style={[theme.bodyText, { marginBottom: 12, color: '#fb923c', fontSize: 13 }]}>
+              ⚠️ Initial setup required. Set your absolute maximum cash ceiling. Once locked, it cannot be expanded mid-month.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TextInput
+                style={[theme.input, { flex: 1, marginBottom: 0, color: '#f8fafc', fontWeight: '700' }]}
+                placeholder="Enter Monthly Capital Cap ($)"
+                placeholderTextColor="#64748b"
+                keyboardType="numeric"
+                value={typedNewBudgetCap}
+                onChangeText={setTypedNewBudgetCap}
+                onFocus={handleGlobalCapFocus}
+              />
+              <TouchableOpacity style={[theme.primaryButton, { marginTop: 0, backgroundColor: '#fb923c' }]} onPress={executeLockMonthlyCeiling}>
+                <Text style={[theme.buttonText, { color: '#0f172a' }]}>Lock Plan</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* CARD 2: REAL-TIME ENVELOPE CONSUMPTION TRACKER */}
@@ -208,7 +254,6 @@ export function BudgetScreen({
           const limit = envelopeAllocations[cat] || 0;
           const spent = currentMonthSpendingMap[cat] || 0;
           const remaining = limit - spent;
-          
           const percentageUsed = limit > 0 ? Math.min(spent / limit, 1.0) : 0;
           const isBusted = remaining < 0;
 
@@ -235,6 +280,7 @@ export function BudgetScreen({
       </View>
 
       {/* CARD 3: ENVELOPE SEEDING CONFIGURATOR */}
+      {/* FIXED: event reference typo corrected to matching variable 'e' */}
       <View 
         style={theme.card} 
         onLayout={e => setAllocationCardY(e.nativeEvent.layout.y)}
@@ -256,14 +302,20 @@ export function BudgetScreen({
             value={typedAllocationAmount}
             onChangeText={setTypedAllocationAmount}
             onFocus={handleAllocationFocus}
+            disabled={!isBudgetLockedForThisMonth}
           />
-          <TouchableOpacity style={[theme.primaryButton, { marginTop: 0 }]} onPress={executeSaveAllocation}>
+          <TouchableOpacity 
+            style={[theme.primaryButton, { marginTop: 0 }, !isBudgetLockedForThisMonth && { backgroundColor: '#475569' }]} 
+            onPress={executeSaveAllocation}
+            disabled={!isBudgetLockedForThisMonth}
+          >
             <Text style={theme.buttonText}>Allocate</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* CARD 4: FIXED INTER-ENVELOPE DROPDOWN PICKER MATRIX */}
+      {/* CARD 4: INTER-ENVELOPE BUDGET SHIFT MATRIX */}
+      {/* FIXED: event reference typo corrected to matching variable 'e' */}
       <View 
         style={theme.card} 
         onLayout={e => setTransferCardY(e.nativeEvent.layout.y)}
@@ -273,17 +325,15 @@ export function BudgetScreen({
           Overspent on a category? Shift money directly from a surplus envelope to avoid breaking your overall spending ceiling.
         </Text>
         
-        {/* FIXED UI: Two full-width selector fields with caret indicator arrows replace the horizontal scrolling pills */}
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 15 }}>
           <View style={{ flex: 1 }}>
             <Text style={[theme.bodyText, { fontSize: 12, color: '#94a3b8', marginBottom: 5 }]}>From Envelope:</Text>
             <TouchableOpacity 
-              style={[theme.input, { justifyContent: 'center', backgroundColor: '#1e293b', borderHorizontalWidth: 1, borderColor: '#334155' }]} 
+              style={[theme.input, { justifyContent: 'center', backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' }]} 
               onPress={() => triggerPickerOverlay('from')}
+              disabled={!isBudgetLockedForThisMonth}
             >
-              <Text style={[theme.boldText, { fontSize: 14, color: '#f87171' }]}>
-                {transferFromCat || 'Select Category'}
-              </Text>
+              <Text style={[theme.boldText, { fontSize: 14, color: '#f87171' }]}>{transferFromCat || 'Select'}</Text>
             </TouchableOpacity>
           </View>
 
@@ -294,12 +344,11 @@ export function BudgetScreen({
           <View style={{ flex: 1 }}>
             <Text style={[theme.bodyText, { fontSize: 12, color: '#94a3b8', marginBottom: 5 }]}>To Envelope:</Text>
             <TouchableOpacity 
-              style={[theme.input, { justifyContent: 'center', backgroundColor: '#1e293b', borderHorizontalWidth: 1, borderColor: '#334155' }]} 
+              style={[theme.input, { justifyContent: 'center', backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' }]} 
               onPress={() => triggerPickerOverlay('to')}
+              disabled={!isBudgetLockedForThisMonth}
             >
-              <Text style={[theme.boldText, { fontSize: 14, color: '#4ade80' }]}>
-                {transferToCat || 'Select Category'}
-              </Text>
+              <Text style={[theme.boldText, { fontSize: 14, color: '#4ade80' }]}>{transferToCat || 'Select'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -307,40 +356,50 @@ export function BudgetScreen({
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TextInput
             style={[theme.input, { flex: 1, marginBottom: 0 }]}
-            placeholder={`Amount to move out`}
+            placeholder="Amount to move out"
             placeholderTextColor="#64748b"
             keyboardType="numeric"
             value={transferAmount}
             onChangeText={setTransferAmount}
             onFocus={handleTransferFocus}
+            disabled={!isBudgetLockedForThisMonth}
           />
-          <TouchableOpacity style={[theme.primaryButton, { marginTop: 0, backgroundColor: '#fb923c' }]} onPress={executeInterEnvelopeTransfer}>
+          <TouchableOpacity 
+            style={[theme.primaryButton, { marginTop: 0, backgroundColor: '#fb923c' }, !isBudgetLockedForThisMonth && { backgroundColor: '#475569' }]} 
+            onPress={executeInterEnvelopeTransfer}
+            disabled={!isBudgetLockedForThisMonth}
+          >
             <Text style={[theme.buttonText, { color: '#0f172a' }]}>Transfer</Text>
           </TouchableOpacity>
         </View>
       </View>
-
-      {/* CARD 5: HISTORICAL PERFORMANCE EVALUATION GRAPH */}
+      {/* CARD 5: DUAL-DIRECTION COMPLIANCE VARIANCE CHART */}
       <View style={theme.card}>
         <Text style={theme.cardTitle}>Historical Compliance Audit</Text>
-        <View style={{ alignItems: 'center', marginTop: 10 }}>
+        <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 2, marginBottom: 8 }}>
+          Net budget variance chart (Budget Limit - Actual Spending). Columns above the zero-axis line indicate savings; columns dropping below indicateoverspending breaches.
+        </Text>
+        
+        <View style={{ alignItems: 'center', marginTop: 15 }}>
           <Svg height={graphH} width={graphW}>
-            <Line x1="0" y1={graphH - 20} x2={graphW} y2={graphH - 20} stroke="#475569" strokeWidth="1" />
+            <Line x1="0" y1={zeroLineY} x2={graphW} y2={zeroLineY} stroke="#475569" strokeWidth="1.5" strokeDasharray="3,3" />
+
             {evaluationChartPoints.map((pt, index) => {
               const x = (index * colSpacing) + (colSpacing - barW) / 2;
-              const maxS = Math.max(...evaluationChartPoints.map(p => p.actualSpending), monthlyBudgetCap, 1);
-              const barH = (pt.actualSpending / maxS) * (graphH - 45);
-              const y = graphH - 20 - barH;
+              const barH = Math.abs(pt.variance) * geometricScaleFactor;
+              const isGreenSurplus = pt.variance >= 0;
+              const y = isGreenSurplus ? (zeroLineY - barH) : zeroLineY;
+              const labelY = isGreenSurplus ? (y - 6) : (y + barH + 13);
 
               return (
                 <G key={index}>
-                  <SvgText x={x + barW / 2} y={y - 6} fill="#94a3b8" fontSize="9" fontWeight="700" textAnchor="middle">
-                    {`$${Math.round(pt.actualSpending)}`}
+                  <SvgText x={x + barW / 2} y={labelY} fill="#cbd5e1" fontSize="9" fontWeight="700" textAnchor="middle">
+                    {`${isGreenSurplus ? '+' : '-'}$${Math.abs(Math.round(pt.variance))}`}
                   </SvgText>
 
                   <Rect
                     x={x} y={y} width={barW} height={barH > 0 ? barH : 2}
-                    fill={pt.isOverBudget ? '#f87171' : '#34d399'}
+                    fill={isGreenSurplus ? '#34d399' : '#f87171'} 
                     rx="3"
                   />
 
@@ -356,72 +415,30 @@ export function BudgetScreen({
 
       <View style={{ height: keyboardOffset }} />
 
-      {/* --- NEW DROPDOWN DRAWER MODAL SHEET SELECTION TRAY --- */}
-      <Modal
-        visible={isPickerModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsPickerModalVisible(false)}
-      >
-        <TouchableOpacity 
-          style={theme.modalOverlay} 
-          activeOpacity={1} 
-          onPress={() => setIsPickerModalVisible(false)}
-        >
+      {/* DROPDOWN OVERLAY SELECTOR TRAY */}
+      <Modal visible={isPickerModalVisible} animationType="slide" transparent={true} onRequestClose={() => setIsPickerModalVisible(false)}>
+        <TouchableOpacity style={theme.modalOverlay} activeOpacity={1} onPress={() => setIsPickerModalVisible(false)}>
           <View style={[theme.modalContent, { maxHeight: '60%', width: screenWidth - 20, alignSelf: 'center' }]}>
             <Text style={[theme.cardTitle, { fontSize: 16, marginBottom: 12, textAlign: 'center' }]}>
               {pickerTargetType === 'from' ? 'Select Source Envelope' : 'Select Target Destination'}
             </Text>
-            
             <ScrollView style={{ width: '100%' }} showsVerticalScrollIndicator={false}>
               {outflowCategories.map(cat => {
                 const currentFundedBalance = envelopeAllocations[cat] || 0;
                 const isSelected = pickerTargetType === 'from' ? transferFromCat === cat : transferToCat === cat;
-                
                 return (
                   <TouchableOpacity
                     key={cat}
-                    style={{
-                      paddingVertical: 14,
-                      paddingHorizontal: 16,
-                      borderBottomWidth: 1,
-                      borderBottomColor: '#334155',
-                      backgroundColor: isSelected ? '#1e293b' : 'transparent',
-                      flexDirection: 'row',
-                      justifyContent: 'space-between',
-                      borderRadius: 8
-                    }}
+                    style={{ paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#334155', backgroundColor: isSelected ? '#1e293b' : 'transparent', flexDirection: 'row', justifyContent: 'space-between', borderRadius: 8 }}
                     onPress={() => handleSelectCategoryFromModal(cat)}
                   >
-                    <Text style={[theme.boldText, { fontSize: 14, color: isSelected ? '#38bdf8' : '#cbd5e1' }]}>
-                      {cat}
-                    </Text>
-                    <Text style={[theme.bodyText, { fontSize: 13, color: '#64748b' }]}>
-                      Allocated: ${currentFundedBalance.toFixed(0)}
-                    </Text>
+                    <Text style={[theme.boldText, { fontSize: 14, color: isSelected ? '#38bdf8' : '#cbd5e1' }]}>{cat}</Text>
+                    <Text style={[theme.bodyText, { fontSize: 13, color: '#64748b' }]}>Allocated: ${currentFundedBalance.toFixed(0)}</Text>
                   </TouchableOpacity>
                 );
               })}
-              {outflowCategories.length === 0 && (
-                <Text style={[theme.mutedText, { textAlign: 'center', paddingVertical: 20 }]}>
-                  No spending categories configured yet.
-                </Text>
-              )}
             </ScrollView>
-
-            <TouchableOpacity
-              style={{
-                marginTop: 15,
-                backgroundColor: '#475569',
-                borderRadius: 10,
-                paddingVertical: 12,
-                width: '100%',
-                alignItems: 'center'
-              }}
-              onPress={() => setIsPickerModalVisible(false)}
-            >
-              <Text style={{ color: '#cbd5e1', fontWeight: '700', fontSize: 14 }}>Close</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={{ marginTop: 15, backgroundColor: '#475569', borderRadius: 10, paddingVertical: 12, width: '100%', alignItems: 'center' }} onPress={() => setIsPickerModalVisible(false)}><Text style={{ color: '#cbd5e1', fontWeight: '700', fontSize: 14 }}>Close</Text></TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
