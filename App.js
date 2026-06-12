@@ -7,7 +7,7 @@ import { DashboardScreen } from './src/screens/DashboardScreen.js';
 import { SummaryScreen } from './src/screens/SummaryScreen.js';
 import { TransactionsScreen } from './src/screens/TransactionsScreen.js'; 
 import { AccountsScreen } from './src/screens/AccountsScreen.js';
-import { BudgetScreen } from './src/screens/BudgetScreen.js'; // Injected new module screen
+import { BudgetScreen } from './src/screens/BudgetScreen.js'; 
 import { ReconciliationModal } from './src/components/ReconciliationModal.js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -22,9 +22,8 @@ export default function App() {
   const [inflowCategories, setInflowCategories] = useState(['Salary', 'Investments', 'Bank Interest', 'Reimbursement', 'Side Hustle']);
   const [recurringTransactions, setRecurringTransactions] = useState([]);
 
-  // --- NEW: ENVELOPE BUDGET ENGINE STATES ---
-  const [monthlyBudgetCap, setMonthlyBudgetCap] = useState(2000); // Baseline default overall cap
-  const [envelopeAllocations, setEnvelopeAllocations] = useState({}); // Stores mapping format: { Food: 500, Transport: 150 }
+  const [monthlyBudgetCap, setMonthlyBudgetCap] = useState(2000); 
+  const [envelopeAllocations, setEnvelopeAllocations] = useState({}); 
 
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountBalance, setNewAccountBalance] = useState('');
@@ -36,12 +35,10 @@ export default function App() {
   const [reconNewBalance, setReconNewBalance] = useState('');
 
   useEffect(() => {
-    // Intercept cold-start link triggers
     Linking.getInitialURL().then(url => {
       if (url) processIncomingDeepAction(url);
     });
 
-    // Intercept background wake-up links
     const urlSubscription = Linking.addEventListener('url', (event) => {
       if (event.url) processIncomingDeepAction(event.url);
     });
@@ -97,8 +94,6 @@ export default function App() {
       const storedOutflowCats = await AsyncStorage.getItem('@budget_outflow_categories');
       const storedInflowCats = await AsyncStorage.getItem('@budget_inflow_categories');
       const storedRecs = await AsyncStorage.getItem('@budget_recurring');
-      
-      // Load envelope database logs safely
       const storedCap = await AsyncStorage.getItem('@budget_monthly_global_cap');
       const storedEnvelopes = await AsyncStorage.getItem('@budget_envelope_allocations');
       
@@ -108,11 +103,9 @@ export default function App() {
       if (storedOutflowCats) setOutflowCategories(JSON.parse(storedOutflowCats));
       if (storedInflowCats) setInflowCategories(JSON.parse(storedInflowCats));
       if (storedRecs) setRecurringTransactions(JSON.parse(storedRecs));
-
       if (storedCap) setMonthlyBudgetCap(parseFloat(storedCap));
       if (storedEnvelopes) setEnvelopeAllocations(JSON.parse(storedEnvelopes));
 
-      // --- AUTOMATED MONTHLY INTEREST COMPOUNDING ENGINE ---
       const today = new Date();
       const currentYearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
       let interestCompoundedThisSession = false;
@@ -165,6 +158,15 @@ export default function App() {
 
       setAccounts(parsedAccs);
       setTransactions(parsedTxs);
+
+      if (parsedAccs.length > 0) {
+        const favoriteAccount = parsedAccs.find(a => a.isFavorite);
+        if (favoriteAccount) {
+          setSelectedAccountId(favoriteAccount.id);
+        } else {
+          setSelectedAccountId(parsedAccs[0].id);
+        }
+      }
       
       await AsyncStorage.setItem('@budget_accounts', JSON.stringify(parsedAccs));
       await AsyncStorage.setItem('@budget_transactions', JSON.stringify(parsedTxs));
@@ -178,14 +180,13 @@ export default function App() {
       await AsyncStorage.setItem('@budget_accounts', JSON.stringify(accs));
       await AsyncStorage.setItem('@budget_transactions', JSON.stringify(txs));
       await AsyncStorage.setItem('@budget_outflow_categories', JSON.stringify(outCats));
-      await AsyncStorage.setItem('@budget_inflow_categories', JSON.stringify(inCats));
+      await AsyncStorage.setItem('@budget_inflow_categories', JSON.stringify(inflowCategories));
       await AsyncStorage.setItem('@budget_recurring', JSON.stringify(recs));
     } catch (e) {
       Alert.alert("Storage Failure", "Disk write lock exception.");
     }
   };
 
-  // FIXED: Sync envelope allocations data parameters safely to file cache keys
   const syncEnvelopeCache = async (nextCapValue, nextAllocationsObject) => {
     try {
       await AsyncStorage.setItem('@budget_monthly_global_cap', String(nextCapValue));
@@ -217,6 +218,7 @@ export default function App() {
   const handleSetFavorite = (id) => {
     const updated = accounts.map(acc => ({ ...acc, isFavorite: acc.id === id }));
     setAccounts(updated);
+    setSelectedAccountId(id); 
     syncCache(updated, transactions, outflowCategories, inflowCategories, recurringTransactions);
   };
 
@@ -263,6 +265,54 @@ export default function App() {
     setExpenseAmount('');
   };
 
+  const handleEditTransaction = (txId, updatedAmount, updatedCategory, updatedDate, updatedNote) => {
+    const oldTx = transactions.find(t => t.id === txId);
+    if (!oldTx) return;
+
+    const newAmountNum = parseFloat(updatedAmount);
+    if (isNaN(newAmountNum) || newAmountNum < 0) return Alert.alert("Invalid Input", "Please provide a valid numeric value.");
+
+    const updatedAccs = accounts.map(acc => {
+      if (acc.id === oldTx.accountId) {
+        let theoreticalRunningBalance = acc.balance;
+        
+        if (oldTx.type === 'Expense') theoreticalRunningBalance += oldTx.amount;
+        else if (oldTx.type === 'Inflow Credit') theoreticalRunningBalance -= oldTx.amount;
+        else if (oldTx.type === 'Balance Adjustment') {
+          if (oldTx.note && oldTx.note.includes("Up")) theoreticalRunningBalance -= oldTx.amount;
+          else theoreticalRunningBalance += oldTx.amount;
+        }
+
+        if (oldTx.type === 'Expense') theoreticalRunningBalance -= newAmountNum;
+        else if (oldTx.type === 'Inflow Credit') theoreticalRunningBalance += newAmountNum;
+        else if (oldTx.type === 'Balance Adjustment') {
+          if (oldTx.note && oldTx.note.includes("Up")) theoreticalRunningBalance += newAmountNum;
+          else theoreticalRunningBalance -= newAmountNum;
+        }
+
+        return { ...acc, balance: theoreticalRunningBalance };
+      }
+      return acc;
+    });
+
+    const updatedTxs = transactions.map(t => {
+      if (t.id === txId) {
+        return {
+          ...t,
+          amount: newAmountNum,
+          category: updatedCategory,
+          date: updatedDate.trim(),
+          note: updatedNote && updatedNote.trim() !== '' ? updatedNote.trim() : null
+        };
+      }
+      return t;
+    });
+
+    setAccounts(updatedAccs);
+    setTransactions(updatedTxs);
+    syncCache(updatedAccs, updatedTxs, outflowCategories, inflowCategories, recurringTransactions);
+  };
+
   const handleApplyReconciliation = () => {
     const target = accounts.find(a => a.id === reconAccountId);
     const newBalNum = parseFloat(reconNewBalance);
@@ -298,7 +348,7 @@ export default function App() {
 
         setAccounts(updatedAccs);
         setTransactions(updatedTxs);
-        syncCache(updatedAccs, updatedTxs, outflowCategories, inflowCategories, updatedTxs);
+        syncCache(updatedAccs, updatedTxs, outflowCategories, inflowCategories, recurringTransactions);
       }}
     ]);
   };
@@ -371,6 +421,7 @@ export default function App() {
     ]);
   };
 
+  // FIXED: Explicit variable declaration safely placed directly before the return tree
   const totalFinancialResources = accounts.reduce((sum, acc) => sum + acc.balance, 0);
 
   return (
@@ -385,7 +436,7 @@ export default function App() {
           {[
             { key: 'dashboard', label: 'Quick Log' },
             { key: 'history', label: 'Summary' },
-            { key: 'budget', label: 'Budget' }, // FIXED: Integrated Envelope Budget sliding tab link
+            { key: 'budget', label: 'Budget' }, 
             { key: 'transactions', label: 'Transactions' }, 
             { key: 'accounts', label: 'Accounts' }
           ].map(tab => (
@@ -411,21 +462,23 @@ export default function App() {
         {currentView === 'history' && (
           <SummaryScreen accounts={accounts} transactions={transactions} recurringTransactions={recurringTransactions} />
         )}
-        {/* FIXED: Dynamic Mounting for Envelope Budget Controller view screen */}
         {currentView === 'budget' && (
           <BudgetScreen 
-            outflowCategories={outflowCategories}
-            transactions={transactions}
-            monthlyBudgetCap={monthlyBudgetCap}
-            setMonthlyBudgetCap={setMonthlyBudgetCap}
-            envelopeAllocations={envelopeAllocations}
-            setEnvelopeAllocations={setEnvelopeAllocations}
-            onSaveCache={syncEnvelopeCache}
-            scrollRef={mainScrollRef}
+            outflowCategories={outflowCategories} transactions={transactions}
+            monthlyBudgetCap={monthlyBudgetCap} setMonthlyBudgetCap={setMonthlyBudgetCap}
+            envelopeAllocations={envelopeAllocations} setEnvelopeAllocations={setEnvelopeAllocations}
+            onSaveCache={syncEnvelopeCache} scrollRef={mainScrollRef}
           />
         )}
         {currentView === 'transactions' && (
-          <TransactionsScreen accounts={accounts} transactions={transactions} onDeleteTransaction={handleDeleteTransaction} />
+          <TransactionsScreen 
+            accounts={accounts} 
+            transactions={transactions} 
+            onDeleteTransaction={handleDeleteTransaction} 
+            onEditTransaction={handleEditTransaction} 
+            outflowCategories={outflowCategories} 
+            inflowCategories={inflowCategories} 
+          />
         )}
         {currentView === 'accounts' && (
           <AccountsScreen 
