@@ -5,7 +5,7 @@ import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking,
 import { theme, screenWidth } from './src/styles/theme';
 import { SummaryScreen } from './src/screens/SummaryScreen';
 import { TransactionsScreen } from './src/screens/TransactionsScreen'; 
-import { AccountsScreen } from './src/screens/AccountsScreen';
+import { AccountsScreen } from './src/screens/Vault';
 import { BudgetScreen } from './src/screens/BudgetScreen'; 
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 

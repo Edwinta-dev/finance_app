@@ -1,17 +1,16 @@
 {
   "expo": {
-    "name": "MiniBudget",
-    "slug": "finance-app",
+    "name": "minibudget",
+    "slug": "snack-cdf574cf-9632-469e-9d68-2ae3a1307960",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
-    "scheme": "minibudget",
-    "newArchEnabled": false,
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0f172a"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true
@@ -19,19 +18,12 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0f172a"
+        "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.edwin.minibudget"
+      "edgeToEdgeEnabled": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "d4de481c-fb5b-4fcf-85e7-c46aaf54cf2d"
-      }
-    },
-    "owner": "edwi"
+    }
   }
 }
