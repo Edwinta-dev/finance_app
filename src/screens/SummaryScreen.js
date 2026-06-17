@@ -175,6 +175,9 @@ export function SummaryScreen({ accounts, transactions, recurringTransactions })
           *Projections based on extrapolated current spending.
         </Text>
       </View>
+      {/* FIXED UI: Added a clean interior spacer block node to clear raised decks elegantly */}
+      <View style={{ height: 16 }} />
     </View>
+    
   );
 }

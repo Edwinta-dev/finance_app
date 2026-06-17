@@ -61,6 +61,7 @@ export function TransactionsScreen({
 
         return (
           <View key={acc.id} style={[theme.card, { paddingVertical: 10, marginBottom: 12 }]}>
+          
             {/* Interactive Accordion Row Header */}
             <TouchableOpacity 
               style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 }}

@@ -113,7 +113,7 @@ export default function App() {
         setMonthlyBudgets(JSON.parse(storedBudgetsMap));
       } else {
         const legacyCap = await AsyncStorage.getItem('@budget_monthly_global_cap');
-        setMonthlyBudgets({ [currentYearMonth]: legacyCap ? parseFloat(legacyCap) : 2000 });
+        setMonthlyBudgets({ [currentYearMonth]: legacyCap ? parseFloat(legacyCap) : 0 });
       }
 
       if (storedEnvelopes) setEnvelopeAllocations(JSON.parse(storedEnvelopes));
