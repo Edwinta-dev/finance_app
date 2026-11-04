@@ -8,6 +8,7 @@ import org.json.JSONObject
 class QuickLogModule : Module() {
   private val context get() = appContext.reactContext ?: throw IllegalStateException("No context")
   private val inbox: InboxStore by lazy { InboxStore(SharedPrefsInboxStorage(context, "pending")) }
+  private val settings: Settings by lazy { Settings(SharedPrefsInboxStorage(context, "settings")) }
   private val mirror: MirrorStore by lazy { MirrorStore(SharedPrefsInboxStorage(context, "mirror")) }
 
   override fun definition() = ModuleDefinition {
@@ -23,6 +24,16 @@ class QuickLogModule : Module() {
     /** Stores {outflowCategories, inflowCategories, accounts:[{id,name}]}; JS never sends balances. */
     AsyncFunction("setMirror") { json: String ->
       mirror.save(json)
+    }
+
+    /** Opt-in switch for the ongoing logging notification; persisted natively so boot can restore it. */
+    AsyncFunction("setLoggingEnabled") { enabled: Boolean ->
+      settings.set(Settings.NOTIFICATION_LOGGING, enabled)
+      if (enabled) LoggingService.start(context) else LoggingService.stop(context)
+    }
+
+    AsyncFunction("isLoggingEnabled") {
+      settings.isEnabled(Settings.NOTIFICATION_LOGGING)
     }
 
     AsyncFunction("ack") { ids: List<String> ->

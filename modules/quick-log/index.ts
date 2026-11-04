@@ -29,3 +29,14 @@ export async function setMirror(json: string): Promise<void> {
   if (!QuickLogModule) return;
   await QuickLogModule.setMirror(json);
 }
+
+/** Turns the ongoing logging notification on or off (persisted natively). */
+export async function setLoggingEnabled(enabled: boolean): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.setLoggingEnabled(enabled);
+}
+
+export async function isLoggingEnabled(): Promise<boolean> {
+  if (!QuickLogModule) return false;
+  return QuickLogModule.isLoggingEnabled();
+}

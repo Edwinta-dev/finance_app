@@ -30,6 +30,8 @@ export interface QuickLogNativeModule {
   getPending(): Promise<PendingTransaction[]>;
   ack(ids: string[]): Promise<void>;
   setMirror(json: string): Promise<void>;
+  setLoggingEnabled(enabled: boolean): Promise<void>;
+  isLoggingEnabled(): Promise<boolean>;
 }
 
 // Null in Expo Go / web / jest, where the native module does not exist.

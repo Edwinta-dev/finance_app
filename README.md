@@ -70,6 +70,18 @@ A floating action button opens a compact entry sheet from any screen — flow di
 
 When a real bank balance drifts from the tracked balance, a reconciliation flow adjusts it and records the correction rather than silently overwriting history.
 
+### Lock-screen logging notification (Android, opt-in)
+
+An ongoing notification with your top three categories as buttons. Tap a category, type an amount, send; the entry is written to a native inbox and merged into your ledger (once, even across restarts) the next time the app opens. Tapping the notification body opens the full log screen ("Other"). It comes back after you swipe it away and after a reboot.
+
+**Permissions**
+
+| Permission | Why | Revoke |
+|---|---|---|
+| `POST_NOTIFICATIONS` | Show the notification (Android 13+, asked at runtime) | System Settings → Apps → MiniBudget → Notifications |
+| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the notification alive | Turn the feature off (it stops the service) |
+| `RECEIVE_BOOT_COMPLETED` | Restore the notification after a reboot, only if you enabled it | Turn the feature off |
+
 ---
 
 ## Architecture
@@ -99,7 +111,7 @@ App.js                      Top-level state + manual tab navigation
 
 *Charts hand-drawn in `react-native-svg`.* The donut chart is stroked arcs computed directly rather than a charting library — smaller bundle, full control over the dark palette.
 
-*Interest applied on load, not on a schedule.* Compounding and recurring entries are computed by diffing against the last-opened timestamp when the app starts. No background task, no notification permission, and the numbers are correct whenever you actually look at them.
+*Interest applied on load, not on a schedule.* Compounding and recurring entries are computed by diffing against the last-opened timestamp when the app starts. No background task is needed for the numbers, and they are correct whenever you actually look at them. The only background component is the optional lock-screen logging notification (below), which is off until you enable it.
 
 **Stack:** React Native 0.81 · React 19 · Expo SDK 54 · react-native-paper · react-native-svg · AsyncStorage
 

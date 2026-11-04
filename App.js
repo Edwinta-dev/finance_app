@@ -1,6 +1,6 @@
 // App.js
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform, AppState } from 'react-native';
+import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform, AppState, PermissionsAndroid } from 'react-native';
 
 import { theme, screenWidth } from './src/styles/theme';
 import { SummaryScreen } from './src/screens/SummaryScreen';
@@ -10,9 +10,10 @@ import { BudgetScreen } from './src/screens/BudgetScreen';
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPending, ack as ackPending, setMirror, isAvailable as isQuickLogAvailable } from './modules/quick-log';
+import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, isAvailable as isQuickLogAvailable } from './modules/quick-log';
 import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
 import { createMirrorSync } from './src/inbox/mirror';
+import { enableNotificationLogging, NOTIF_PROMPTED_KEY } from './src/inbox/notificationSettings';
 
 export default function App() {
   const mainScrollRef = React.useRef(null);
@@ -99,6 +100,37 @@ export default function App() {
 
   useEffect(() => {
     loadGlobalState();
+  }, []);
+
+  // One-time, opt-in offer to turn on the lock-screen logging notification.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isQuickLogAvailable()) return;
+    (async () => {
+      try {
+        if (await AsyncStorage.getItem(NOTIF_PROMPTED_KEY)) return;
+        if (await isLoggingEnabled()) return;
+        await AsyncStorage.setItem(NOTIF_PROMPTED_KEY, '1');
+        Alert.alert(
+          'Log from your lock screen?',
+          'Show a persistent notification with category buttons so you can log spending in two taps. It needs the notification permission and can be turned off any time.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            {
+              text: 'Enable',
+              onPress: () => enableNotificationLogging({
+                native: { setLoggingEnabled },
+                permissionEnv: {
+                  os: Platform.OS,
+                  version: Platform.Version,
+                  request: (p) => PermissionsAndroid.request(p),
+                  permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+                },
+              }).catch(() => {}),
+            },
+          ]
+        );
+      } catch (e) {}
+    })();
   }, []);
 
   // Keep the native read-only copy of categories/accounts current (debounced, skipped when unchanged).

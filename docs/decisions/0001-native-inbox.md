@@ -13,3 +13,11 @@ Native code (notification, tile, listeners) cannot safely write AsyncStorage, so
 ## Mirror (issue #14)
 
 Native code reads categories and accounts from a separate SharedPreferences key (`mirror`) written by `setMirror(json)`. `buildMirror` whitelists `{outflowCategories, inflowCategories, accounts:[{id,name}]}` so balances and transactions can never leak into native storage. `createMirrorSync` debounces (500 ms) and skips unchanged payloads; the account effect depends on `accounts`, but balance-only changes produce an identical payload and are not re-sent.
+
+## Logging notification (issue #15)
+
+- **Amount entry:** Android shows at most three notification actions, and a single reply box can't be shared between buttons. Each of the top-3 category actions therefore carries its own `RemoteInput` (tap category, type amount, send). "Other" is the notification body tap, which deep-links to `minibudget://log?amount=&category=` (QuickLogModal). Deviation from the issue text: "Other" is not a fourth action button.
+- **Opt-in:** the feature is off until the user accepts a one-time prompt (or the later Settings toggle). The flag is stored natively (`Settings`) so `BootReceiver` can restore the service without JS.
+- **Foreground service type:** `specialUse` with a declared subtype; allowed to start from `BOOT_COMPLETED` on Android 15.
+- **Re-post on swipe:** `setDeleteIntent` starts the service with `ACTION_REPOST`, which re-posts the notification.
+- **Manifest:** permissions and components live in the module's own `AndroidManifest.xml` (merged at build), not in generated `android/`.
