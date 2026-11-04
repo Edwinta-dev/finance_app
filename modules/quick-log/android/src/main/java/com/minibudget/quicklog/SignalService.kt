@@ -18,7 +18,7 @@ class SignalService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     val settings = Settings(SharedPrefsInboxStorage(this, "settings"))
-    if (!settings.isEnabled(Settings.BANK_CAMERA_SIGNALS) || intent?.action == ACTION_STOP || !UsageSignalMonitor.hasUsageAccess(this)) {
+    if ((!settings.isEnabled(Settings.BANK_CAMERA_SIGNALS) && !settings.isEnabled(Settings.NUDGES)) || intent?.action == ACTION_STOP || !UsageSignalMonitor.hasUsageAccess(this)) {
       monitor?.stop(); monitor = null
       stopForeground(STOP_FOREGROUND_REMOVE)
       stopSelf()

@@ -51,6 +51,10 @@
     </service>
 
     <receiver
+      android:name="com.minibudget.quicklog.SummaryReceiver"
+      android:exported="false" />
+
+    <receiver
       android:name="com.minibudget.quicklog.CandidateActionReceiver"
       android:exported="false" />
 

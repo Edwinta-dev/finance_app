@@ -47,6 +47,7 @@ export const SETTING_KEYS = {
   bankNotifications: 'bankNotifications',
   keepRawText: 'keepRawText',
   bankCameraSignals: 'bankCameraSignals',
+  nudges: 'nudges',
   locationCapture: 'locationCapture',
   roundLocation: 'roundLocation',
   reverseGeocoding: 'reverseGeocoding',
@@ -93,4 +94,16 @@ export async function setSignalWindowMs(ms: number): Promise<void> {
 export async function captureLocation(): Promise<PendingLocation | null> {
   if (!QuickLogModule) return null;
   return QuickLogModule.captureLocation();
+}
+
+/** Minutes after a bank-app session ends before a nudge is considered (config key `nudgeMinutes`, default 5). */
+export async function setNudgeMinutes(minutes: number): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.setNudgeMinutes(minutes);
+}
+
+/** Tells native the user just logged a transaction in the app (keeps nudges quiet). */
+export async function noteLogged(ts: number = Date.now()): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.noteLogged(ts);
 }

@@ -41,8 +41,12 @@ class QuickLogModule : Module() {
     /** Generic opt-in flags (bank notifications, raw-text retention, ...). All default off. */
     AsyncFunction("setSetting") { key: String, enabled: Boolean ->
       settings.set(key, enabled)
-      if (key == Settings.BANK_CAMERA_SIGNALS) {
-        if (enabled && UsageSignalMonitor.hasUsageAccess(context)) SignalService.start(context) else SignalService.stop(context)
+      if (key == Settings.BANK_CAMERA_SIGNALS || key == Settings.NUDGES) {
+        val wanted = settings.isEnabled(Settings.BANK_CAMERA_SIGNALS) || settings.isEnabled(Settings.NUDGES)
+        if (wanted && UsageSignalMonitor.hasUsageAccess(context)) SignalService.start(context) else SignalService.stop(context)
+      }
+      if (key == Settings.NUDGES) {
+        if (enabled) Nudges.scheduleDailySummary(context) else Nudges.cancelDailySummary(context)
       }
     }
 
@@ -60,6 +64,16 @@ class QuickLogModule : Module() {
       val intent = android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(intent)
+    }
+
+    /** Minutes after a bank-app session ends before a nudge is considered (default 5). */
+    AsyncFunction("setNudgeMinutes") { minutes: Int ->
+      SharedPrefsInboxStorage(context, "nudge_minutes").write(NudgePolicy(minutes).nudgeMinutes.toString())
+    }
+
+    /** JS tells native when the user logs a transaction in the app, so nudges stay quiet. */
+    AsyncFunction("noteLogged") { ts: Double ->
+      LogTimes(SharedPrefsInboxStorage(context, "log_times")).record(ts.toLong())
     }
 
     AsyncFunction("hasUsageAccess") { UsageSignalMonitor.hasUsageAccess(context) }

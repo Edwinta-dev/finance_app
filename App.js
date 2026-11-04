@@ -10,12 +10,13 @@ import { BudgetScreen } from './src/screens/BudgetScreen';
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, getSetting, captureLocation, SETTING_KEYS, isAvailable as isQuickLogAvailable } from './modules/quick-log';
+import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, getSetting, captureLocation, noteLogged, SETTING_KEYS, isAvailable as isQuickLogAvailable } from './modules/quick-log';
 import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
 import { createMirrorSync } from './src/inbox/mirror';
 import { selectUnconfirmed, resolveCandidate } from './src/inbox/reviewFlow';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { captureLocationIfEnabled } from './src/inbox/location';
+import { dedupePlan } from './src/inbox/dedupe';
 import { enableNotificationLogging, NOTIF_PROMPTED_KEY } from './src/inbox/notificationSettings';
 
 export default function App() {
@@ -163,13 +164,17 @@ export default function App() {
     if (mergingInboxRef.current || !isQuickLogAvailable()) return;
     mergingInboxRef.current = true;
     try {
-      const pending = await getPending();
-      if (!pending.length || currentAccs.length === 0) return;
+      const rawPending = await getPending();
+      if (!rawPending.length || currentAccs.length === 0) return;
+      // The same payment can arrive from several signals; fold them into one item first.
+      const { items: pending, droppedIds } = dedupePlan(rawPending);
       const favorite = currentAccs.find(a => a.isFavorite);
-      const { transactions: mergedTxs, ackIds, added } = mergePending(currentTxs, pending, {
+      const merge = mergePending(currentTxs, pending, {
         accounts: currentAccs,
         defaultAccountId: favorite ? favorite.id : undefined,
       });
+      const { transactions: mergedTxs, added } = merge;
+      const ackIds = [...merge.ackIds, ...droppedIds];
       if (ackIds.length === 0) return;
       const mergedAccs = applyTransactionsToAccounts(currentAccs, added);
       if (added.length > 0) {
@@ -191,7 +196,10 @@ export default function App() {
   const refreshReview = async () => {
     try {
       if (!isQuickLogAvailable()) return;
-      setReviewItems(selectUnconfirmed(await getPending()));
+      const { items, droppedIds } = dedupePlan(await getPending());
+      setReviewItems(selectUnconfirmed(items));
+      // Duplicates were folded into a surviving item, so they can leave the native inbox.
+      if (droppedIds.length > 0) await ackPending(droppedIds);
     } catch (e) {}
   };
 
@@ -401,6 +409,7 @@ export default function App() {
       note: inputDescription ? inputDescription.trim() : null 
     };
 
+    noteLogged().catch(() => {}); // keeps unlogged-session nudges quiet
     const updatedAccs = applyTransactionsToAccounts(accounts, [newTx]);
     const updatedTxs = [newTx, ...transactions];
     setAccounts(updatedAccs);

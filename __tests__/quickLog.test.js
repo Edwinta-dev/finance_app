@@ -9,13 +9,15 @@ jest.mock('../modules/quick-log/src/QuickLogModule', () => ({
     setBankConfig: jest.fn(async () => {}),
     openNotificationAccessSettings: jest.fn(async () => {}),
     hasUsageAccess: jest.fn(async () => false),
+    setNudgeMinutes: jest.fn(async () => {}),
+    noteLogged: jest.fn(async () => {}),
     openUsageAccessSettings: jest.fn(async () => {}),
     setSignalWindowMs: jest.fn(async () => {}),
   },
 }));
 
 import QuickLogModule from '../modules/quick-log/src/QuickLogModule';
-import { ping, getPending, ack, isAvailable, setSetting, getSetting, setBankConfig, SETTING_KEYS, hasUsageAccess, setSignalWindowMs } from '../modules/quick-log';
+import { ping, getPending, ack, isAvailable, setSetting, getSetting, setBankConfig, SETTING_KEYS, hasUsageAccess, setSignalWindowMs, setNudgeMinutes, noteLogged } from '../modules/quick-log';
 
 describe('quick-log JS wrapper', () => {
   it('calls the native ping and returns its value', () => {
@@ -55,5 +57,15 @@ describe('usage/camera signal wrappers', () => {
     expect(await hasUsageAccess()).toBe(false);
     await setSignalWindowMs(90000);
     expect(QuickLogModule.setSignalWindowMs).toHaveBeenCalledWith(90000);
+  });
+});
+
+describe('nudge wrappers', () => {
+  it('forwards nudge config and log notes', async () => {
+    expect(SETTING_KEYS.nudges).toBe('nudges');
+    await setNudgeMinutes(7);
+    expect(QuickLogModule.setNudgeMinutes).toHaveBeenCalledWith(7);
+    await noteLogged(123);
+    expect(QuickLogModule.noteLogged).toHaveBeenCalledWith(123);
   });
 });

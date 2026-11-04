@@ -53,6 +53,7 @@ class LoggingService : Service() {
   private fun logger() = QuickLogger(
     InboxStore(SharedPrefsInboxStorage(this, "pending")),
     RecentCategories(SharedPrefsInboxStorage(this, "recent")),
+    LogTimes(SharedPrefsInboxStorage(this, "log_times")),
   )
 
   private fun buildNotification(last: PendingTransaction?): Notification {

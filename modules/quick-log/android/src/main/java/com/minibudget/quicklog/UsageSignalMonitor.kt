@@ -21,11 +21,17 @@ class UsageSignalMonitor(private val context: Context) {
   private val inbox = InboxStore(SharedPrefsInboxStorage(context, "pending"))
   private lateinit var correlator: SignalCorrelator
   private var lastPoll = 0L
+  private val settings = Settings(SharedPrefsInboxStorage(context, "settings"))
+  private val logTimes = LogTimes(SharedPrefsInboxStorage(context, "log_times"))
+  private lateinit var bankPackages: Set<String>
+  private val sessionStart = HashMap<String, Long>()
   private var running = false
 
   private val cameraCallback = object : CameraManager.AvailabilityCallback() {
     override fun onCameraUnavailable(cameraId: String) {
-      emit(correlator.onEvent(SignalEvent(SignalType.CAMERA_USED, System.currentTimeMillis())))
+      if (settings.isEnabled(Settings.BANK_CAMERA_SIGNALS)) {
+        emit(correlator.onEvent(SignalEvent(SignalType.CAMERA_USED, System.currentTimeMillis())))
+      }
     }
   }
 
@@ -41,7 +47,8 @@ class UsageSignalMonitor(private val context: Context) {
     if (running) return
     val config = BankConfig.parse(SharedPrefsInboxStorage(context, "bank_config").read())
     val window = SharedPrefsInboxStorage(context, "signal_window").read()?.toLongOrNull() ?: SignalCorrelator.DEFAULT_WINDOW_MS
-    correlator = SignalCorrelator(config.packages.keys, window)
+    bankPackages = config.packages.keys
+    correlator = SignalCorrelator(bankPackages, window)
     lastPoll = System.currentTimeMillis()
     running = true
     cameraManager.registerAvailabilityCallback(cameraCallback, handler)
@@ -62,10 +69,28 @@ class UsageSignalMonitor(private val context: Context) {
     while (events.hasNextEvent()) {
       events.getNextEvent(e)
       if (e.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-        emit(correlator.onEvent(SignalEvent(SignalType.BANK_APP_OPENED, e.timeStamp, e.packageName)))
+        if (e.packageName in bankPackages) sessionStart[e.packageName] = e.timeStamp
+        if (settings.isEnabled(Settings.BANK_CAMERA_SIGNALS)) {
+          emit(correlator.onEvent(SignalEvent(SignalType.BANK_APP_OPENED, e.timeStamp, e.packageName)))
+        }
+      } else if (e.eventType == UsageEvents.Event.MOVE_TO_BACKGROUND && e.packageName in bankPackages) {
+        sessionStart.remove(e.packageName)?.let { scheduleNudge(it, e.timeStamp) }
       }
     }
     lastPoll = now
+  }
+
+  /** After a bank-app session ends, check once [NudgePolicy.nudgeMinutes] later whether anything was logged. */
+  private fun scheduleNudge(start: Long, end: Long) {
+    if (!settings.isEnabled(Settings.NUDGES)) return
+    val minutes = SharedPrefsInboxStorage(context, "nudge_minutes").read()?.toIntOrNull() ?: NudgePolicy.DEFAULT_MINUTES
+    val policy = NudgePolicy(minutes)
+    handler.postDelayed({
+      if (running && settings.isEnabled(Settings.NUDGES) &&
+        policy.shouldNudge(start, end, logTimes.all(), System.currentTimeMillis())) {
+        Nudges.postUnloggedSession(context)
+      }
+    }, policy.dueAt(end) - System.currentTimeMillis())
   }
 
   private fun emit(item: PendingTransaction?) {

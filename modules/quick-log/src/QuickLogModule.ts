@@ -40,6 +40,8 @@ export interface QuickLogNativeModule {
   openUsageAccessSettings(): Promise<void>;
   setSignalWindowMs(ms: number): Promise<void>;
   captureLocation(): Promise<PendingLocation | null>;
+  setNudgeMinutes(minutes: number): Promise<void>;
+  noteLogged(ts: number): Promise<void>;
 }
 
 // Null in Expo Go / web / jest, where the native module does not exist.

@@ -22,6 +22,7 @@ class Settings(private val storage: InboxStorage) {
     const val BANK_NOTIFICATIONS = "bankNotifications"
     const val KEEP_RAW_TEXT = "keepRawText"
     const val BANK_CAMERA_SIGNALS = "bankCameraSignals"
+    const val NUDGES = "nudges"
     const val LOCATION_CAPTURE = "locationCapture"
     const val ROUND_LOCATION = "roundLocation"
     const val REVERSE_GEOCODING = "reverseGeocoding"

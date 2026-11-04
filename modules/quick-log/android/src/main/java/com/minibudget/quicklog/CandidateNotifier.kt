@@ -63,7 +63,9 @@ class CandidateActionReceiver : BroadcastReceiver() {
     val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     fun finish(location: PendingLocation?) {
-      CandidateResolver.apply(inbox, id, action, location)
+      if (CandidateResolver.apply(inbox, id, action, location) && kind == PromptKind.CATEGORY) {
+        LogTimes(SharedPrefsInboxStorage(context, "log_times")).record(System.currentTimeMillis())
+      }
       if (kind == PromptKind.CATEGORY) action.category?.let { RecentCategories(SharedPrefsInboxStorage(context, "recent")).record(it) }
       nm.cancel(CandidateNotifier.notificationId(id))
     }

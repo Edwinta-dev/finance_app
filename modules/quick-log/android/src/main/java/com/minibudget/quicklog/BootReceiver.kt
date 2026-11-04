@@ -10,6 +10,8 @@ class BootReceiver : BroadcastReceiver() {
     if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
     val settings = Settings(SharedPrefsInboxStorage(context, "settings"))
     if (settings.isEnabled(Settings.NOTIFICATION_LOGGING)) LoggingService.start(context)
-    if (settings.isEnabled(Settings.BANK_CAMERA_SIGNALS) && UsageSignalMonitor.hasUsageAccess(context)) SignalService.start(context)
+    val wantsMonitor = settings.isEnabled(Settings.BANK_CAMERA_SIGNALS) || settings.isEnabled(Settings.NUDGES)
+    if (wantsMonitor && UsageSignalMonitor.hasUsageAccess(context)) SignalService.start(context)
+    if (settings.isEnabled(Settings.NUDGES)) Nudges.scheduleDailySummary(context)
   }
 }

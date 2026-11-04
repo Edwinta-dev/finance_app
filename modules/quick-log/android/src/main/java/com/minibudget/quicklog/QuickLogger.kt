@@ -11,6 +11,7 @@ sealed class LogResult {
 class QuickLogger(
   private val inbox: InboxStore,
   private val recent: RecentCategories,
+  private val logTimes: LogTimes? = null,
   private val now: () -> Long = { System.currentTimeMillis() },
   private val newId: () -> String = { UUID.randomUUID().toString() },
 ) {
@@ -29,6 +30,7 @@ class QuickLogger(
     )
     inbox.add(item)
     recent.record(category)
+    logTimes?.record(item.ts)
     return LogResult.Logged(item)
   }
 }
