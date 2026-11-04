@@ -1,6 +1,6 @@
 // App.js
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform } from 'react-native';
+import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform, AppState } from 'react-native';
 
 import { theme, screenWidth } from './src/styles/theme';
 import { SummaryScreen } from './src/screens/SummaryScreen';
@@ -10,6 +10,8 @@ import { BudgetScreen } from './src/screens/BudgetScreen';
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getPending, ack as ackPending, isAvailable as isQuickLogAvailable } from './modules/quick-log';
+import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
 
 export default function App() {
   const mainScrollRef = React.useRef(null);
@@ -35,6 +37,13 @@ export default function App() {
   const [reconModalVisible, setReconModalVisible] = useState(false);
   const [reconAccountId, setReconAccountId] = useState(null);
   const [reconNewBalance, setReconNewBalance] = useState('');
+
+  // Latest state for async callbacks (AppState listener, inbox merge).
+  const accountsRef = React.useRef([]);
+  const transactionsRef = React.useRef([]);
+  const mergingInboxRef = React.useRef(false);
+  accountsRef.current = accounts;
+  transactionsRef.current = transactions;
 
   useEffect(() => {
     Linking.getInitialURL().then(url => {
@@ -88,6 +97,42 @@ export default function App() {
   useEffect(() => {
     loadGlobalState();
   }, []);
+
+  // Fold items written by native code into the ledger whenever the app returns to the foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') mergeInbox(accountsRef.current, transactionsRef.current);
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Merges confirmed native-inbox items into the ledger; acks only after AsyncStorage is saved.
+  const mergeInbox = async (currentAccs, currentTxs) => {
+    if (mergingInboxRef.current || !isQuickLogAvailable()) return;
+    mergingInboxRef.current = true;
+    try {
+      const pending = await getPending();
+      if (!pending.length || currentAccs.length === 0) return;
+      const favorite = currentAccs.find(a => a.isFavorite);
+      const { transactions: mergedTxs, ackIds, added } = mergePending(currentTxs, pending, {
+        accounts: currentAccs,
+        defaultAccountId: favorite ? favorite.id : undefined,
+      });
+      if (ackIds.length === 0) return;
+      const mergedAccs = applyTransactionsToAccounts(currentAccs, added);
+      if (added.length > 0) {
+        await AsyncStorage.setItem('@budget_accounts', JSON.stringify(mergedAccs));
+        await AsyncStorage.setItem('@budget_transactions', JSON.stringify(mergedTxs));
+        setAccounts(mergedAccs);
+        setTransactions(mergedTxs);
+      }
+      await ackPending(ackIds);
+    } catch (e) {
+      console.log('Inbox merge failed; items stay in the native inbox:', e);
+    } finally {
+      mergingInboxRef.current = false;
+    }
+  };
 
   const loadGlobalState = async () => {
     try {
@@ -180,6 +225,7 @@ export default function App() {
       
       await AsyncStorage.setItem('@budget_accounts', JSON.stringify(parsedAccs));
       await AsyncStorage.setItem('@budget_transactions', JSON.stringify(parsedTxs));
+      await mergeInbox(parsedAccs, parsedTxs);
     } catch (e) {
       Alert.alert("Data Failure", "Failed to resolve device persistent file mapping logs.");
     }
@@ -247,13 +293,6 @@ export default function App() {
     if (!expenseAmount || !selectedAccountId) return Alert.alert("Error", "Required fields missing.");
     const amountNum = parseFloat(expenseAmount);
     
-    const updatedAccs = accounts.map(a => {
-      if (a.id === selectedAccountId) {
-        return { ...a, balance: isIncomingToggle ? a.balance + amountNum : a.balance - amountNum };
-      }
-      return a;
-    });
-
     const today = new Date();
     const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
@@ -268,6 +307,7 @@ export default function App() {
       note: inputDescription ? inputDescription.trim() : null 
     };
 
+    const updatedAccs = applyTransactionsToAccounts(accounts, [newTx]);
     const updatedTxs = [newTx, ...transactions];
     setAccounts(updatedAccs);
     setTransactions(updatedTxs);
