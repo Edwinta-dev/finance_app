@@ -41,6 +41,9 @@ class QuickLogModule : Module() {
     /** Generic opt-in flags (bank notifications, raw-text retention, ...). All default off. */
     AsyncFunction("setSetting") { key: String, enabled: Boolean ->
       settings.set(key, enabled)
+      if (key == Settings.NOTIFICATION_LOGGING) {
+        if (enabled) LoggingService.start(context) else LoggingService.stop(context)
+      }
       if (key == Settings.BANK_CAMERA_SIGNALS || key == Settings.NUDGES) {
         val wanted = settings.isEnabled(Settings.BANK_CAMERA_SIGNALS) || settings.isEnabled(Settings.NUDGES)
         if (wanted && UsageSignalMonitor.hasUsageAccess(context)) SignalService.start(context) else SignalService.stop(context)
@@ -94,6 +97,11 @@ class QuickLogModule : Module() {
     /** One-shot location for the in-app confirm flow. Resolves null when disabled, not permitted or unavailable. */
     AsyncFunction("captureLocation") { promise: Promise ->
       LocationCapture.capture(context) { loc -> promise.resolve(loc?.let { toMap(it.toJson()) }) }
+    }
+
+    /** Removes unconfirmed items from the given sources (e.g. ["bank_notification"]). */
+    AsyncFunction("clearUnconfirmed") { sources: List<String> ->
+      inbox.clearUnconfirmed(sources)
     }
 
     AsyncFunction("ack") { ids: List<String> ->

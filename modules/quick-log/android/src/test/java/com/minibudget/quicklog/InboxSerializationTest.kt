@@ -63,3 +63,28 @@ class InboxSerializationTest {
     assertEquals(listOf("confirmed", "unconfirmed"), store.getPending().map { it.status })
   }
 }
+
+class ClearUnconfirmedTest {
+  private fun item(id: String, source: String, status: String) =
+    PendingTransaction(id, 1.0, "outflow", "", source = source, ts = 1, status = status)
+
+  @Test fun clearsOnlyUnconfirmedItemsFromTheGivenSources() {
+    val store = InboxStore(InMemoryInboxStorage())
+    store.add(item("a", "bank_notification", "unconfirmed"))
+    store.add(item("b", "bank_notification", "confirmed"))
+    store.add(item("c", "bank_camera", "unconfirmed"))
+    store.add(item("d", "notification", "unconfirmed"))
+    assertEquals(1, store.clearUnconfirmed(listOf("bank_notification")))
+    assertEquals(listOf("b", "c", "d"), store.getPending().map { it.id })
+    assertEquals(2, store.clearUnconfirmed(listOf("bank_camera", "notification")))
+    assertEquals(listOf("b"), store.getPending().map { it.id })
+  }
+
+  @Test fun noMatchesOrEmptySourcesChangeNothing() {
+    val store = InboxStore(InMemoryInboxStorage())
+    store.add(item("a", "bank_notification", "unconfirmed"))
+    assertEquals(0, store.clearUnconfirmed(emptyList()))
+    assertEquals(0, store.clearUnconfirmed(listOf("other")))
+    assertEquals(1, store.getPending().size)
+  }
+}

@@ -107,3 +107,9 @@ export async function noteLogged(ts: number = Date.now()): Promise<void> {
   if (!QuickLogModule) return;
   await QuickLogModule.noteLogged(ts);
 }
+
+/** Deletes unconfirmed inbox items from the given sources; returns how many were removed. */
+export async function clearUnconfirmed(sources: string[]): Promise<number> {
+  if (!QuickLogModule) return 0;
+  return QuickLogModule.clearUnconfirmed(sources);
+}

@@ -32,6 +32,15 @@ class InboxStore(private val storage: InboxStorage) {
     storage.write(PendingTransaction.listToJson(next))
   }
 
+  /** Deletes unconfirmed items from the given sources (e.g. when the user turns a signal off). Returns the count removed. */
+  @Synchronized
+  fun clearUnconfirmed(sources: Collection<String>): Int {
+    val all = getPending()
+    val keep = all.filterNot { it.status == "unconfirmed" && it.source in sources }
+    if (keep.size != all.size) storage.write(PendingTransaction.listToJson(keep))
+    return all.size - keep.size
+  }
+
   @Synchronized
   fun ack(ids: Collection<String>) {
     if (ids.isEmpty()) return

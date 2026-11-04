@@ -55,3 +55,11 @@ Native code reads categories and accounts from a separate SharedPreferences key 
 - **Amount-less hints** (bank+camera) are absorbed by an amounted item inside the window and never change its amount. A hint alone stays a hint. This is a judgement call: the issue says "same amount", but a hint has none, and leaving it separate would defeat the point of merging the three signals. Easy to tighten if it merges too eagerly.
 - **Nudge** (`NudgePolicy.kt`, pure): once `nudgeMinutes` (default 5) have passed since a bank-app session ended, nudge unless something was logged between the session start and that deadline; sessions under 3 s are ignored. "Logged" comes from `LogTimes`, fed by the notification logger, notification confirmations and, via `noteLogged`, in-app logging. Nudges are their own opt-in (`nudges`) and need Usage Access, since session ends come from the same usage monitor.
 - **Daily summary:** inexact daily alarm around 20:00 local time; the notification is skipped when the unconfirmed count is zero. Re-armed after reboot.
+
+## Settings and compliance (issue #22)
+
+- **Single source of truth:** `src/settings/signals.js` lists every signal with its title, plain-language explanation, permission step, parent (`dependsOn`) and the inbox source it can clear. `SettingsScreen` renders from that list, so a signal cannot exist without a toggle and explanation (`__tests__/settings.test.js`).
+- **Persistence and gating:** toggles are stored natively (`Settings`) and every service/listener checks its flag before doing work; children (raw text, location blur, reverse geocoding) are also gated by their parent. Switching a parent off switches its children off and stops the service (`LoggingService`, `SignalService`) or listener processing.
+- **Clearing:** turning off the bank-notification or bank+camera signal offers "Delete waiting suggestions", implemented natively as `InboxStore.clearUnconfirmed(sources)`; confirmed items are never touched.
+- **Usage Access flow:** the system screen can't report back, so on return to the foreground the app re-asserts already-enabled usage-based signals, which starts the monitor once access exists.
+- **Settings entry:** a gear in the header, shown only where the native module exists (Android dev client / release build).

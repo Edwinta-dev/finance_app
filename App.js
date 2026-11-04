@@ -10,13 +10,15 @@ import { BudgetScreen } from './src/screens/BudgetScreen';
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, getSetting, captureLocation, noteLogged, SETTING_KEYS, isAvailable as isQuickLogAvailable } from './modules/quick-log';
+import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, getSetting, setSetting, captureLocation, noteLogged, clearUnconfirmed, hasUsageAccess, openUsageAccessSettings, openNotificationAccessSettings, SETTING_KEYS, isAvailable as isQuickLogAvailable } from './modules/quick-log';
 import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
 import { createMirrorSync } from './src/inbox/mirror';
 import { selectUnconfirmed, resolveCandidate } from './src/inbox/reviewFlow';
 import { ReviewScreen } from './src/screens/ReviewScreen';
 import { captureLocationIfEnabled } from './src/inbox/location';
 import { dedupePlan } from './src/inbox/dedupe';
+import { SettingsScreen } from './src/screens/SettingsScreen';
+import { requestNotificationPermission } from './src/inbox/notificationSettings';
 import { enableNotificationLogging, NOTIF_PROMPTED_KEY } from './src/inbox/notificationSettings';
 
 export default function App() {
@@ -154,6 +156,7 @@ export default function App() {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         mergeInbox(accountsRef.current, transactionsRef.current);
+        resumeUsageSignals();
       }
     });
     return () => sub.remove();
@@ -191,6 +194,30 @@ export default function App() {
       refreshReview();
     }
   };
+
+  // After the user grants Usage Access in system settings, start the monitor for signals that are already on.
+  const resumeUsageSignals = async () => {
+    try {
+      if (Platform.OS !== 'android' || !isQuickLogAvailable() || !(await hasUsageAccess())) return;
+      for (const key of [SETTING_KEYS.bankCameraSignals, SETTING_KEYS.nudges]) {
+        if (await getSetting(key)) await setSetting(key, true);
+      }
+    } catch (e) {}
+  };
+
+  // Permission step to run before each signal can be switched on (see src/settings/signals.js).
+  const settingsPermissions = {
+    notifications: () => requestNotificationPermission({
+      os: Platform.OS, version: Platform.Version,
+      request: (p) => PermissionsAndroid.request(p),
+      permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+    }),
+    notificationAccess: async () => { await openNotificationAccessSettings(); return true; },
+    usageAccess: async () => { if (!(await hasUsageAccess())) await openUsageAccessSettings(); return true; },
+    location: async () =>
+      (await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION)) === 'granted',
+  };
+  const nativeSettings = { getSetting, setSetting, clearUnconfirmed };
 
   // Unconfirmed candidates waiting in the native inbox.
   const refreshReview = async () => {
@@ -612,6 +639,15 @@ export default function App() {
       <View style={theme.header}>
         <Text style={theme.headerTitle}>MiniBudget</Text>
         <Text style={theme.headerSubtitle}>Total Net Worth: ${totalFinancialResources.toFixed(2)}</Text>
+        {Platform.OS === 'android' && isQuickLogAvailable() && (
+          <TouchableOpacity
+            style={{ position: 'absolute', right: 20, top: Platform.OS === 'ios' ? 15 : 20, padding: 6 }}
+            accessibilityLabel="Settings"
+            onPress={() => setCurrentView(currentView === 'settings' ? 'history' : 'settings')}
+          >
+            <Text style={{ fontSize: 20 }}>⚙️</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView 
@@ -622,6 +658,9 @@ export default function App() {
       >
         {currentView === 'history' && (
           <SummaryScreen accounts={accounts} transactions={transactions} recurringTransactions={recurringTransactions} />
+        )}
+        {currentView === 'settings' && (
+          <SettingsScreen native={nativeSettings} permissions={settingsPermissions} />
         )}
         {currentView === 'review' && (
           <ReviewScreen

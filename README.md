@@ -70,23 +70,41 @@ A floating action button opens a compact entry sheet from any screen — flow di
 
 When a real bank balance drifts from the tracked balance, a reconciliation flow adjusts it and records the correction rather than silently overwriting history.
 
-### Lock-screen logging notification (Android, opt-in)
+### Automatic capture (Android, opt-in)
 
-An ongoing notification with your top three categories as buttons. Tap a category, type an amount, send; the entry is written to a native inbox and merged into your ledger (once, even across restarts) the next time the app opens. Tapping the notification body opens the full log screen ("Other"). It comes back after you swipe it away and after a reboot.
+MiniBudget can suggest or log transactions from a few signals. **Every one is off until you switch it on in Settings (the gear in the header), each has a plain-language explanation there, and you can turn any of them off at any time.** Suggestions always wait for your confirmation before they count, and everything stays on the phone.
 
-**Permissions**
+| Signal | What it does |
+|---|---|
+| Lock-screen logging notification | Ongoing notification with your top categories: tap one, type an amount, send. Tapping the notification body opens the full log screen. Comes back after swiping it away and after a reboot. A Quick Settings tile opens the same screen. |
+| Read bank notifications | Turns notifications from DBS/POSB, OCBC, UOB and PayLah into suggestions. Other apps are ignored. |
+| Keep original notification text | Stores the raw notification text with each suggestion (otherwise only amount and merchant). |
+| Bank app + camera hints | Suggests a payment when a bank app is opened shortly after the camera was used. |
+| Add a place to confirmed payments | One-shot approximate location when you confirm a suggestion; never in the background. Optional blur to ~100 m. |
+| Look up place names | Reverse geocoding. **The only feature that uses the network**, off by default. |
+| Reminders | Nudge if you leave a bank app and log nothing within 5 minutes; daily summary of waiting suggestions (skipped when none). |
 
-| Permission | Why | Revoke |
+Turning a signal off stops its service or listener. For the bank-notification and bank+camera signals you can also delete the suggestions that are still waiting.
+
+#### Permissions
+
+| Permission | Why it is needed | How to revoke |
 |---|---|---|
-| `POST_NOTIFICATIONS` | Show the notification (Android 13+, asked at runtime) | System Settings → Apps → MiniBudget → Notifications |
-| `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the notification alive | Turn the feature off (it stops the service) |
-| `RECEIVE_BOOT_COMPLETED` | Restore the notification after a reboot, only if you enabled it | Turn the feature off |
+| `POST_NOTIFICATIONS` | Show the logging notification, confirmation prompts and reminders (Android 13+, asked at runtime) | System Settings → Apps → MiniBudget → Notifications |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` | Keep the logging notification and the bank-app watcher running | Turn the signal off in Settings |
+| `RECEIVE_BOOT_COMPLETED` | Restore the notification and reminders after a reboot, only for signals you enabled | Turn the signals off |
+| Notification Access (`BIND_NOTIFICATION_LISTENER_SERVICE`) | Read bank-app notifications. Only the configured bank apps are read | System Settings → Notifications → Device & app notifications → MiniBudget |
+| Usage Access (`PACKAGE_USAGE_STATS`) | See which app is in the foreground, to notice a bank app opening. Used for bank+camera hints and reminders. Screen contents are not visible | System Settings → Apps → Special app access → Usage access |
+| `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | One approximate location when you confirm a suggestion (while the app is in use). **No background location** | System Settings → Apps → MiniBudget → Permissions → Location |
+| Quick Settings tile (`BIND_QUICK_SETTINGS_TILE`) | Lets you add the "Quick log" tile; granted by the system | Remove the tile from Quick Settings |
+
+The camera permission is **not** requested: only the system's "camera in use" signal is observed, never images. Play Store declaration drafts are in [`docs/play-declarations.md`](docs/play-declarations.md).
 
 ---
 
 ## Architecture
 
-The app runs entirely on-device. No backend, no account, no network call — all financial data stays in `AsyncStorage` on the phone.
+The app runs entirely on-device. No backend, no account — all financial data stays in `AsyncStorage` on the phone (plus a private native inbox for items captured by the optional Android signals). The one optional network use is place-name lookup, which is off by default.
 
 ```
 App.js                      Top-level state + manual tab navigation
@@ -111,7 +129,7 @@ App.js                      Top-level state + manual tab navigation
 
 *Charts hand-drawn in `react-native-svg`.* The donut chart is stroked arcs computed directly rather than a charting library — smaller bundle, full control over the dark palette.
 
-*Interest applied on load, not on a schedule.* Compounding and recurring entries are computed by diffing against the last-opened timestamp when the app starts. No background task is needed for the numbers, and they are correct whenever you actually look at them. The only background component is the optional lock-screen logging notification (below), which is off until you enable it.
+*Interest applied on load, not on a schedule.* Compounding and recurring entries are computed by diffing against the last-opened timestamp when the app starts. No background task is needed for the numbers, and they are correct whenever you actually look at them. The only background components are the optional Android capture signals (below), which are all off until you enable them.
 
 **Stack:** React Native 0.81 · React 19 · Expo SDK 54 · react-native-paper · react-native-svg · AsyncStorage
 
