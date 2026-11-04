@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "minibudget",
-    "slug": "snack-cdf574cf-9632-469e-9d68-2ae3a1307960",
+    "slug": "minibudget",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,7 +20,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.minibudget.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"

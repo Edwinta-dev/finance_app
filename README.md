@@ -112,7 +112,20 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with Expo Go, or press `a` / `i` for an Android or iOS emulator.
+The app now uses a custom dev client (a local Expo module, `modules/quick-log`, adds native Android code), so Expo Go no longer runs it. Build and install a dev client once, then start Metro:
+
+```bash
+npx expo prebuild --platform android   # generates android/ (git-ignored)
+npx expo run:android                   # or: eas build --profile development --platform android
+npx expo start --dev-client
+```
+
+### Tests
+
+```bash
+npm test                # jest (JS logic, native module mocked)
+npm run test:android    # expo prebuild + Gradle JVM unit tests (needs the Android SDK)
+```
 
 ---
 
