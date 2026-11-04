@@ -1,8 +1,10 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <!-- Granted by the user in Usage Access settings; only used when bank/camera signals are opted in. -->
+  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
 
   <application>
     <service
@@ -23,6 +25,15 @@
       <intent-filter>
         <action android:name="android.service.quicksettings.action.QS_TILE" />
       </intent-filter>
+    </service>
+
+    <service
+      android:name="com.minibudget.quicklog.SignalService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="User-enabled detection of a bank app opening shortly after camera use, to suggest logging a payment" />
     </service>
 
     <!-- Inert until the user grants Notification Access and enables bank notifications in-app. -->

@@ -8,11 +8,14 @@ jest.mock('../modules/quick-log/src/QuickLogModule', () => ({
     getSetting: jest.fn(async () => true),
     setBankConfig: jest.fn(async () => {}),
     openNotificationAccessSettings: jest.fn(async () => {}),
+    hasUsageAccess: jest.fn(async () => false),
+    openUsageAccessSettings: jest.fn(async () => {}),
+    setSignalWindowMs: jest.fn(async () => {}),
   },
 }));
 
 import QuickLogModule from '../modules/quick-log/src/QuickLogModule';
-import { ping, getPending, ack, isAvailable, setSetting, getSetting, setBankConfig, SETTING_KEYS } from '../modules/quick-log';
+import { ping, getPending, ack, isAvailable, setSetting, getSetting, setBankConfig, SETTING_KEYS, hasUsageAccess, setSignalWindowMs } from '../modules/quick-log';
 
 describe('quick-log JS wrapper', () => {
   it('calls the native ping and returns its value', () => {
@@ -43,5 +46,14 @@ describe('opt-in settings and bank config', () => {
   it('serialises the bank config', async () => {
     await setBankConfig({ packages: { 'com.example.bank': 'uob' } });
     expect(QuickLogModule.setBankConfig).toHaveBeenCalledWith('{"packages":{"com.example.bank":"uob"}}');
+  });
+});
+
+describe('usage/camera signal wrappers', () => {
+  it('exposes the opt-in key and forwards calls', async () => {
+    expect(SETTING_KEYS.bankCameraSignals).toBe('bankCameraSignals');
+    expect(await hasUsageAccess()).toBe(false);
+    await setSignalWindowMs(90000);
+    expect(QuickLogModule.setSignalWindowMs).toHaveBeenCalledWith(90000);
   });
 });

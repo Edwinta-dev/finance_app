@@ -41,3 +41,10 @@ Native code reads categories and accounts from a separate SharedPreferences key 
 - **Native resolution:** a category tap sets the inbox item to `confirmed` with that category; "Not mine" sets `rejected`. JS merges confirmed items and acks rejected ones on the next load/resume (`mergePending`).
 - **In-app review:** `resolveCandidate` (pure) confirms through `mergePending` + `applyTransactionsToAccounts`, i.e. the same transaction shape and balance effect as `handleLogTransaction`, then `App.js` saves to AsyncStorage and only afterwards acks. It does not call `handleLogTransaction` itself because that function reads the quick-log form state and doesn't await its save.
 - A "Review (n)" tab appears only while candidates are waiting.
+
+## Bank-app + camera signal (issue #19)
+
+- **Detection:** `UsageSignalMonitor` polls `UsageStatsManager` every 5 s for bank-app foreground events and listens to `CameraManager.AvailabilityCallback` for camera use. No AccessibilityService. It needs the user to grant Usage Access and to switch on `bankCameraSignals`; `SignalService` (foreground, `specialUse`) hosts it and shows a minimal-importance notification so the background work is visible.
+- **Decision logic:** `SignalCorrelator` (plain JVM) pairs each camera use with at most one later bank-app open inside the window (default 2 min; configurable via `setSignalWindowMs`). Result: `status: unconfirmed`, `source: "bank_camera"`, `amount: 0` (no amount known), `confidence: 0.3`. Duplicated camera callbacks within 2 s collapse into one.
+- **Bank packages** reuse `BankConfig` (same native list as the notification parser); an empty list disables the signal.
+- **Limits:** polling means a bank app opened and closed between polls is missed; accepted for a weak hint. Real package names and the camera-callback behaviour need checking on a device.

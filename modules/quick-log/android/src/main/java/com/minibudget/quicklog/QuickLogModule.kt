@@ -39,6 +39,9 @@ class QuickLogModule : Module() {
     /** Generic opt-in flags (bank notifications, raw-text retention, ...). All default off. */
     AsyncFunction("setSetting") { key: String, enabled: Boolean ->
       settings.set(key, enabled)
+      if (key == Settings.BANK_CAMERA_SIGNALS) {
+        if (enabled && UsageSignalMonitor.hasUsageAccess(context)) SignalService.start(context) else SignalService.stop(context)
+      }
     }
 
     AsyncFunction("getSetting") { key: String ->
@@ -55,6 +58,21 @@ class QuickLogModule : Module() {
       val intent = android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
       context.startActivity(intent)
+    }
+
+    AsyncFunction("hasUsageAccess") { UsageSignalMonitor.hasUsageAccess(context) }
+
+    /** Opens the system Usage Access screen (user grants it there). */
+    AsyncFunction("openUsageAccessSettings") {
+      context.startActivity(
+        android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS)
+          .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+      )
+    }
+
+    /** Milliseconds between a camera use and a bank-app open for them to count as related. */
+    AsyncFunction("setSignalWindowMs") { ms: Double ->
+      SharedPrefsInboxStorage(context, "signal_window").write(ms.toLong().toString())
     }
 
     AsyncFunction("ack") { ids: List<String> ->

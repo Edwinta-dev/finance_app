@@ -21,5 +21,6 @@ class Settings(private val storage: InboxStorage) {
     const val NOTIFICATION_LOGGING = "notificationLogging"
     const val BANK_NOTIFICATIONS = "bankNotifications"
     const val KEEP_RAW_TEXT = "keepRawText"
+    const val BANK_CAMERA_SIGNALS = "bankCameraSignals"
   }
 }

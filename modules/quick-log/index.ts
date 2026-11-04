@@ -46,6 +46,7 @@ export const SETTING_KEYS = {
   notificationLogging: 'notificationLogging',
   bankNotifications: 'bankNotifications',
   keepRawText: 'keepRawText',
+  bankCameraSignals: 'bankCameraSignals',
 } as const;
 
 export async function setSetting(key: string, enabled: boolean): Promise<void> {
@@ -67,4 +68,20 @@ export async function setBankConfig(config: { packages: Record<string, string> }
 export async function openNotificationAccessSettings(): Promise<void> {
   if (!QuickLogModule) return;
   await QuickLogModule.openNotificationAccessSettings();
+}
+
+export async function hasUsageAccess(): Promise<boolean> {
+  if (!QuickLogModule) return false;
+  return QuickLogModule.hasUsageAccess();
+}
+
+export async function openUsageAccessSettings(): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.openUsageAccessSettings();
+}
+
+/** Window (ms) between camera use and a bank-app open for them to count as related. Default is 2 minutes. */
+export async function setSignalWindowMs(ms: number): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.setSignalWindowMs(ms);
 }
