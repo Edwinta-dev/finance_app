@@ -13,7 +13,7 @@ data class NotificationPlan(
     fun build(mirror: Mirror, recentUse: List<String>, lastLogged: PendingTransaction? = null): NotificationPlan {
       val cats = CategorySelector.top(mirror.outflowCategories, recentUse, 3)
       val text = when {
-        lastLogged != null -> "Logged %.2f · %s. Pick a category, type an amount.".format(lastLogged.amount, lastLogged.category)
+        lastLogged != null -> String.format(java.util.Locale.US, "Logged %.2f · %s. Pick a category, type an amount.", lastLogged.amount, lastLogged.category)
         cats.isEmpty() -> "Open the app to set up categories."
         else -> "Pick a category, then type the amount."
       }

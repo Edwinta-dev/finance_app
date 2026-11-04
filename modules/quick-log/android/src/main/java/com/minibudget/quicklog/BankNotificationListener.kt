@@ -24,7 +24,8 @@ class BankNotificationListener : NotificationListenerService() {
       .distinct()
       .joinToString(" ")
 
-    BankNotificationHandler(settings, config, InboxStore(SharedPrefsInboxStorage(this, "pending")))
+    val item = BankNotificationHandler(settings, config, InboxStore(SharedPrefsInboxStorage(this, "pending")))
       .handle(sbn.packageName, text, sbn.postTime)
+    if (item != null) CandidateNotifier.post(this, item)
   }
 }

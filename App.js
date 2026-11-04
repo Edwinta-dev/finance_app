@@ -13,6 +13,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, isAvailable as isQuickLogAvailable } from './modules/quick-log';
 import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
 import { createMirrorSync } from './src/inbox/mirror';
+import { selectUnconfirmed, resolveCandidate } from './src/inbox/reviewFlow';
+import { ReviewScreen } from './src/screens/ReviewScreen';
 import { enableNotificationLogging, NOTIF_PROMPTED_KEY } from './src/inbox/notificationSettings';
 
 export default function App() {
@@ -39,6 +41,7 @@ export default function App() {
   const [reconModalVisible, setReconModalVisible] = useState(false);
   const [reconAccountId, setReconAccountId] = useState(null);
   const [reconNewBalance, setReconNewBalance] = useState('');
+  const [reviewItems, setReviewItems] = useState([]);
 
   // Latest state for async callbacks (AppState listener, inbox merge).
   const accountsRef = React.useRef([]);
@@ -65,6 +68,11 @@ export default function App() {
 
   const processIncomingDeepAction = (url) => {
     try {
+      if (url && url.includes('://review')) {
+        setCurrentView('review');
+        refreshReview();
+        return;
+      }
       if (!url || !url.includes('://log')) return;
       const splitUrlParts = url.split('?');
       const queryParametersString = splitUrlParts[1];
@@ -142,7 +150,9 @@ export default function App() {
   // Fold items written by native code into the ledger whenever the app returns to the foreground.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') mergeInbox(accountsRef.current, transactionsRef.current);
+      if (state === 'active') {
+        mergeInbox(accountsRef.current, transactionsRef.current);
+      }
     });
     return () => sub.remove();
   }, []);
@@ -172,7 +182,40 @@ export default function App() {
       console.log('Inbox merge failed; items stay in the native inbox:', e);
     } finally {
       mergingInboxRef.current = false;
+      refreshReview();
     }
+  };
+
+  // Unconfirmed candidates waiting in the native inbox.
+  const refreshReview = async () => {
+    try {
+      if (!isQuickLogAvailable()) return;
+      setReviewItems(selectUnconfirmed(await getPending()));
+    } catch (e) {}
+  };
+
+  // Confirm / reject a candidate. Saves to AsyncStorage first, then acks.
+  const handleReviewDecision = async (item, decision) => {
+    const favorite = accountsRef.current.find(a => a.isFavorite);
+    const result = resolveCandidate({
+      item, decision,
+      transactions: transactionsRef.current,
+      accounts: accountsRef.current,
+      defaultAccountId: favorite ? favorite.id : undefined,
+    });
+    if (!result.ok) return Alert.alert('Cannot confirm', result.error);
+    try {
+      if (decision.type === 'confirm') {
+        await AsyncStorage.setItem('@budget_accounts', JSON.stringify(result.accounts));
+        await AsyncStorage.setItem('@budget_transactions', JSON.stringify(result.transactions));
+        setAccounts(result.accounts);
+        setTransactions(result.transactions);
+      }
+      await ackPending(result.ackIds);
+    } catch (e) {
+      Alert.alert('Save failed', 'The item stays in your review list.');
+    }
+    refreshReview();
   };
 
   const loadGlobalState = async () => {
@@ -561,6 +604,15 @@ export default function App() {
         {currentView === 'history' && (
           <SummaryScreen accounts={accounts} transactions={transactions} recurringTransactions={recurringTransactions} />
         )}
+        {currentView === 'review' && (
+          <ReviewScreen
+            items={reviewItems}
+            outflowCategories={outflowCategories}
+            inflowCategories={inflowCategories}
+            onConfirm={(item, category, amount) => handleReviewDecision(item, { type: 'confirm', category, amount })}
+            onReject={(item) => handleReviewDecision(item, { type: 'reject' })}
+          />
+        )}
         {currentView === 'budget' && (
           <BudgetScreen 
             outflowCategories={outflowCategories} transactions={transactions}
@@ -634,7 +686,10 @@ export default function App() {
           { key: 'history', label: 'Summary', icon: '📊' },
           { key: 'budget', label: 'Budget', icon: '✉️' },
           { key: 'transactions', label: 'Ledger', icon: '📝' },
-          { key: 'accounts', label: 'Vault', icon: '💳' }
+          { key: 'accounts', label: 'Vault', icon: '💳' },
+          ...(reviewItems.length > 0 || currentView === 'review'
+            ? [{ key: 'review', label: `Review (${reviewItems.length})`, icon: '🔔' }]
+            : [])
         ].map(tab => {
           const isTabActive = currentView === tab.key;
           return (

@@ -33,3 +33,11 @@ Native code reads categories and accounts from a separate SharedPreferences key 
 - **Raw text** is stored only with the separate `keepRawText` flag.
 - **Idempotent ids:** `bank-<pkg>-<postTime>-<textHash>`, so a re-posted notification collapses to one item.
 - **Templates** live in `templates/` per bank (DBS/POSB, OCBC, UOB, PayLah). Fixtures are invented; the real wording and the default package names are best guesses and must be checked against the real apps on the owner's phone.
+
+## Confirmation prompt and review list (issue #18)
+
+- **Buttons:** Android shows at most three notification actions, so the heads-up has the user's top two categories plus "Not mine" (the issue's example listed four). The body tap opens `minibudget://review` and plays the "Other" role. Inflow candidates offer the first two inflow categories.
+- **Amount-less hints** (bank+camera, issue #19) only offer "Not mine" in the notification; the amount is typed in the review list.
+- **Native resolution:** a category tap sets the inbox item to `confirmed` with that category; "Not mine" sets `rejected`. JS merges confirmed items and acks rejected ones on the next load/resume (`mergePending`).
+- **In-app review:** `resolveCandidate` (pure) confirms through `mergePending` + `applyTransactionsToAccounts`, i.e. the same transaction shape and balance effect as `handleLogTransaction`, then `App.js` saves to AsyncStorage and only afterwards acks. It does not call `handleLogTransaction` itself because that function reads the quick-log form state and doesn't await its save.
+- A "Review (n)" tab appears only while candidates are waiting.
