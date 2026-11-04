@@ -19,5 +19,7 @@ class Settings(private val storage: InboxStorage) {
 
   companion object {
     const val NOTIFICATION_LOGGING = "notificationLogging"
+    const val BANK_NOTIFICATIONS = "bankNotifications"
+    const val KEEP_RAW_TEXT = "keepRawText"
   }
 }

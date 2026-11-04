@@ -36,6 +36,27 @@ class QuickLogModule : Module() {
       settings.isEnabled(Settings.NOTIFICATION_LOGGING)
     }
 
+    /** Generic opt-in flags (bank notifications, raw-text retention, ...). All default off. */
+    AsyncFunction("setSetting") { key: String, enabled: Boolean ->
+      settings.set(key, enabled)
+    }
+
+    AsyncFunction("getSetting") { key: String ->
+      settings.isEnabled(key)
+    }
+
+    /** JSON `{"packages": {"<pkg>": "<templateId>"}}`; replaces the bank package list. */
+    AsyncFunction("setBankConfig") { json: String ->
+      SharedPrefsInboxStorage(context, "bank_config").write(json)
+    }
+
+    /** Opens the system screen where the user grants Notification Access. */
+    AsyncFunction("openNotificationAccessSettings") {
+      val intent = android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+      context.startActivity(intent)
+    }
+
     AsyncFunction("ack") { ids: List<String> ->
       inbox.ack(ids)
     }

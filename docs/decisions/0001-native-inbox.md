@@ -25,3 +25,11 @@ Native code reads categories and accounts from a separate SharedPreferences key 
 ## Quick Settings tile (issue #16)
 
 `LogTileService` only launches `DeepLink.log()`, the same link as the notification's "Other" path, so the logging UI, parsing and inbox writing exist in one place. The tile is declared in the module manifest, is a launcher (inactive state, no toggle), and does not depend on `LoggingService` running. New pure helper `DeepLink` is unit tested. Users add the tile from the Quick Settings edit screen.
+
+## Bank notification parser (issue #17)
+
+- **Double opt-in:** the listener is declared in the manifest but is inert until (1) the user grants Notification Access in system settings and (2) the in-app `bankNotifications` flag is on. Packages not in `BankConfig` are dropped before their text is read.
+- **Candidates only:** matches are written as `status: unconfirmed`, `source: "bank_notification"`, `confidence` from the template, `category: ""`, merchant in `memo`. They are never merged into the ledger until confirmed (issue #18).
+- **Raw text** is stored only with the separate `keepRawText` flag.
+- **Idempotent ids:** `bank-<pkg>-<postTime>-<textHash>`, so a re-posted notification collapses to one item.
+- **Templates** live in `templates/` per bank (DBS/POSB, OCBC, UOB, PayLah). Fixtures are invented; the real wording and the default package names are best guesses and must be checked against the real apps on the owner's phone.

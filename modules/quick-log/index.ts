@@ -40,3 +40,31 @@ export async function isLoggingEnabled(): Promise<boolean> {
   if (!QuickLogModule) return false;
   return QuickLogModule.isLoggingEnabled();
 }
+
+/** Opt-in flag keys understood by native code. */
+export const SETTING_KEYS = {
+  notificationLogging: 'notificationLogging',
+  bankNotifications: 'bankNotifications',
+  keepRawText: 'keepRawText',
+} as const;
+
+export async function setSetting(key: string, enabled: boolean): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.setSetting(key, enabled);
+}
+
+export async function getSetting(key: string): Promise<boolean> {
+  if (!QuickLogModule) return false;
+  return QuickLogModule.getSetting(key);
+}
+
+/** Replaces the bank package list: `{ packages: { "<package>": "<templateId>" } }`. */
+export async function setBankConfig(config: { packages: Record<string, string> }): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.setBankConfig(JSON.stringify(config));
+}
+
+export async function openNotificationAccessSettings(): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.openNotificationAccessSettings();
+}

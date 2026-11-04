@@ -32,6 +32,10 @@ export interface QuickLogNativeModule {
   setMirror(json: string): Promise<void>;
   setLoggingEnabled(enabled: boolean): Promise<void>;
   isLoggingEnabled(): Promise<boolean>;
+  setSetting(key: string, enabled: boolean): Promise<void>;
+  getSetting(key: string): Promise<boolean>;
+  setBankConfig(json: string): Promise<void>;
+  openNotificationAccessSettings(): Promise<void>;
 }
 
 // Null in Expo Go / web / jest, where the native module does not exist.
