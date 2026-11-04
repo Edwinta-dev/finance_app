@@ -1,6 +1,8 @@
 // src/inbox/mergePending.js
 // Pure helpers that fold items from the native inbox into the AsyncStorage ledger.
 
+import { normalizeLocation } from './location';
+
 export const INBOX_ID_PREFIX = 'inbox-';
 
 export const formatLocalDate = (ts) => {
@@ -16,18 +18,22 @@ const isValidItem = (item) =>
   item.amount > 0;
 
 /** Maps an inbox item to the existing transaction shape (fields unchanged, extras added). */
-export const pendingToTransaction = (item, account) => ({
-  id: `${INBOX_ID_PREFIX}${item.id}`,
-  accountId: account.id,
-  accountName: account.name,
-  amount: item.amount,
-  category: item.category,
-  type: item.direction === 'inflow' ? 'Inflow Credit' : 'Expense',
-  date: formatLocalDate(item.ts),
-  note: item.memo && item.memo.trim() !== '' ? item.memo.trim() : null,
-  source: item.source,
-  pendingId: item.id,
-});
+export const pendingToTransaction = (item, account) => {
+  const location = normalizeLocation(item.location);
+  return {
+    id: `${INBOX_ID_PREFIX}${item.id}`,
+    accountId: account.id,
+    accountName: account.name,
+    amount: item.amount,
+    category: item.category,
+    type: item.direction === 'inflow' ? 'Inflow Credit' : 'Expense',
+    date: formatLocalDate(item.ts),
+    note: item.memo && item.memo.trim() !== '' ? item.memo.trim() : null,
+    source: item.source,
+    pendingId: item.id,
+    ...(location ? { location } : {}),
+  };
+};
 
 /**
  * Merges confirmed inbox items into `transactions`.

@@ -1,5 +1,5 @@
 import QuickLogModule from './src/QuickLogModule';
-import type { PendingTransaction } from './src/QuickLogModule';
+import type { PendingTransaction, PendingLocation } from './src/QuickLogModule';
 
 export type { PendingTransaction, PendingLocation, TxDirection, TxStatus } from './src/QuickLogModule';
 
@@ -47,6 +47,9 @@ export const SETTING_KEYS = {
   bankNotifications: 'bankNotifications',
   keepRawText: 'keepRawText',
   bankCameraSignals: 'bankCameraSignals',
+  locationCapture: 'locationCapture',
+  roundLocation: 'roundLocation',
+  reverseGeocoding: 'reverseGeocoding',
 } as const;
 
 export async function setSetting(key: string, enabled: boolean): Promise<void> {
@@ -84,4 +87,10 @@ export async function openUsageAccessSettings(): Promise<void> {
 export async function setSignalWindowMs(ms: number): Promise<void> {
   if (!QuickLogModule) return;
   await QuickLogModule.setSignalWindowMs(ms);
+}
+
+/** One-shot location (null when location capture is off, not permitted or unavailable). */
+export async function captureLocation(): Promise<PendingLocation | null> {
+  if (!QuickLogModule) return null;
+  return QuickLogModule.captureLocation();
 }

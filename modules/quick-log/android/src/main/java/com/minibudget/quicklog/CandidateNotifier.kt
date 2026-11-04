@@ -59,8 +59,21 @@ class CandidateActionReceiver : BroadcastReceiver() {
     val id = intent.getStringExtra(CandidateNotifier.EXTRA_ID) ?: return
     val kind = runCatching { PromptKind.valueOf(intent.getStringExtra(CandidateNotifier.EXTRA_KIND).orEmpty()) }.getOrNull() ?: return
     val action = PromptAction("", kind, intent.getStringExtra(CandidateNotifier.EXTRA_CATEGORY))
-    CandidateResolver.apply(InboxStore(SharedPrefsInboxStorage(context, "pending")), id, action)
-    if (kind == PromptKind.CATEGORY) action.category?.let { RecentCategories(SharedPrefsInboxStorage(context, "recent")).record(it) }
-    (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(CandidateNotifier.notificationId(id))
+    val inbox = InboxStore(SharedPrefsInboxStorage(context, "pending"))
+    val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+    fun finish(location: PendingLocation?) {
+      CandidateResolver.apply(inbox, id, action, location)
+      if (kind == PromptKind.CATEGORY) action.category?.let { RecentCategories(SharedPrefsInboxStorage(context, "recent")).record(it) }
+      nm.cancel(CandidateNotifier.notificationId(id))
+    }
+
+    if (kind == PromptKind.CATEGORY) {
+      // Capture on tap (best effort: Android may deny location to a background process).
+      val pending = goAsync()
+      LocationCapture.capture(context) { location -> finish(location); pending.finish() }
+    } else {
+      finish(null)
+    }
   }
 }

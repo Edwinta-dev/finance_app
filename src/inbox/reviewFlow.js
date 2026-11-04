@@ -33,7 +33,7 @@ export const resolveCandidate = ({ item, decision, transactions, accounts, defau
 
   const merged = mergePending(
     transactions,
-    [{ ...item, amount, category, status: 'confirmed' }],
+    [{ ...item, amount, category, status: 'confirmed', location: decision.location || item.location }],
     { accounts, defaultAccountId }
   );
   if (merged.ackIds.length === 0) return { ok: false, error: 'Add an account first.' };

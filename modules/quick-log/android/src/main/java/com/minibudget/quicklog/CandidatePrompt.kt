@@ -42,13 +42,13 @@ data class CandidatePrompt(val title: String, val text: String, val actions: Lis
 /** Applies a tapped prompt action to the inbox item. Plain JVM. */
 object CandidateResolver {
   /** Returns true if the item was unconfirmed and has been resolved. */
-  fun apply(inbox: InboxStore, id: String, action: PromptAction): Boolean {
+  fun apply(inbox: InboxStore, id: String, action: PromptAction, location: PendingLocation? = null): Boolean {
     val current = inbox.getPending().firstOrNull { it.id == id } ?: return false
     if (current.status != "unconfirmed") return false
     return when (action.kind) {
       PromptKind.CATEGORY -> {
         val category = action.category ?: return false
-        inbox.update(id) { it.copy(status = "confirmed", category = category) }
+        inbox.update(id) { it.copy(status = "confirmed", category = category, location = location ?: it.location) }
         true
       }
       PromptKind.REJECT -> {

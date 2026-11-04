@@ -10,11 +10,12 @@ import { BudgetScreen } from './src/screens/BudgetScreen';
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, isAvailable as isQuickLogAvailable } from './modules/quick-log';
+import { getPending, ack as ackPending, setMirror, setLoggingEnabled, isLoggingEnabled, getSetting, captureLocation, SETTING_KEYS, isAvailable as isQuickLogAvailable } from './modules/quick-log';
 import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
 import { createMirrorSync } from './src/inbox/mirror';
 import { selectUnconfirmed, resolveCandidate } from './src/inbox/reviewFlow';
 import { ReviewScreen } from './src/screens/ReviewScreen';
+import { captureLocationIfEnabled } from './src/inbox/location';
 import { enableNotificationLogging, NOTIF_PROMPTED_KEY } from './src/inbox/notificationSettings';
 
 export default function App() {
@@ -197,6 +198,15 @@ export default function App() {
   // Confirm / reject a candidate. Saves to AsyncStorage first, then acks.
   const handleReviewDecision = async (item, decision) => {
     const favorite = accountsRef.current.find(a => a.isFavorite);
+    if (decision.type === 'confirm') {
+      // Capture-on-tap: one-shot location, only if the user opted in (never background).
+      const location = await captureLocationIfEnabled({
+        isEnabled: () => getSetting(SETTING_KEYS.locationCapture),
+        requestPermission: async () => (await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION)) === 'granted',
+        capture: captureLocation,
+      });
+      if (location) decision = { ...decision, location };
+    }
     const result = resolveCandidate({
       item, decision,
       transactions: transactionsRef.current,

@@ -1,6 +1,8 @@
 package com.minibudget.quicklog
 
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
 import org.json.JSONObject
@@ -73,6 +75,11 @@ class QuickLogModule : Module() {
     /** Milliseconds between a camera use and a bank-app open for them to count as related. */
     AsyncFunction("setSignalWindowMs") { ms: Double ->
       SharedPrefsInboxStorage(context, "signal_window").write(ms.toLong().toString())
+    }
+
+    /** One-shot location for the in-app confirm flow. Resolves null when disabled, not permitted or unavailable. */
+    AsyncFunction("captureLocation") { promise: Promise ->
+      LocationCapture.capture(context) { loc -> promise.resolve(loc?.let { toMap(it.toJson()) }) }
     }
 
     AsyncFunction("ack") { ids: List<String> ->

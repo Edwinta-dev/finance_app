@@ -58,3 +58,22 @@ class CandidatePromptTest {
     assertEquals("confirmed", inbox.getPending().single().status)
   }
 }
+
+class CandidateLocationTest {
+  private fun inboxWith(): InboxStore = InboxStore(InMemoryInboxStorage()).also {
+    it.add(PendingTransaction("c1", 5.0, "outflow", "", source = "bank_notification", ts = 1, status = "unconfirmed"))
+  }
+
+  @Test fun confirmingAttachesCapturedLocation() {
+    val inbox = inboxWith()
+    val loc = PendingLocation(1.3, 103.8, 100.0)
+    CandidateResolver.apply(inbox, "c1", PromptAction("Food", PromptKind.CATEGORY, "Food"), loc)
+    assertEquals(loc, inbox.getPending().single().location)
+  }
+
+  @Test fun confirmingWithoutLocationLeavesItNull() {
+    val inbox = inboxWith()
+    CandidateResolver.apply(inbox, "c1", PromptAction("Food", PromptKind.CATEGORY, "Food"))
+    assertEquals(null, inbox.getPending().single().location)
+  }
+}
