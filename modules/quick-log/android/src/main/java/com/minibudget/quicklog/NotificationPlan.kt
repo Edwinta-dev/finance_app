@@ -8,7 +8,7 @@ data class NotificationPlan(
   val otherDeepLink: String,
 ) {
   companion object {
-    const val DEEP_LINK = "minibudget://log?amount=&category="
+    val DEEP_LINK: String = DeepLink.log()
 
     fun build(mirror: Mirror, recentUse: List<String>, lastLogged: PendingTransaction? = null): NotificationPlan {
       val cats = CategorySelector.top(mirror.outflowCategories, recentUse, 3)

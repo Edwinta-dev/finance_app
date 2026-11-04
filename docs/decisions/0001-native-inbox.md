@@ -21,3 +21,7 @@ Native code reads categories and accounts from a separate SharedPreferences key 
 - **Foreground service type:** `specialUse` with a declared subtype; allowed to start from `BOOT_COMPLETED` on Android 15.
 - **Re-post on swipe:** `setDeleteIntent` starts the service with `ACTION_REPOST`, which re-posts the notification.
 - **Manifest:** permissions and components live in the module's own `AndroidManifest.xml` (merged at build), not in generated `android/`.
+
+## Quick Settings tile (issue #16)
+
+`LogTileService` only launches `DeepLink.log()`, the same link as the notification's "Other" path, so the logging UI, parsing and inbox writing exist in one place. The tile is declared in the module manifest, is a launcher (inactive state, no toggle), and does not depend on `LoggingService` running. New pure helper `DeepLink` is unit tested. Users add the tile from the Quick Settings edit screen.
