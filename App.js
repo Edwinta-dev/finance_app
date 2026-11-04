@@ -10,8 +10,9 @@ import { BudgetScreen } from './src/screens/BudgetScreen';
 import { ReconciliationModal } from './src/components/ReconciliationModal';
 import { QuickLogModal } from './src/components/QuickLogModal'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPending, ack as ackPending, isAvailable as isQuickLogAvailable } from './modules/quick-log';
+import { getPending, ack as ackPending, setMirror, isAvailable as isQuickLogAvailable } from './modules/quick-log';
 import { mergePending, applyTransactionsToAccounts } from './src/inbox/mergePending';
+import { createMirrorSync } from './src/inbox/mirror';
 
 export default function App() {
   const mainScrollRef = React.useRef(null);
@@ -42,6 +43,8 @@ export default function App() {
   const accountsRef = React.useRef([]);
   const transactionsRef = React.useRef([]);
   const mergingInboxRef = React.useRef(false);
+  const mirrorSyncRef = React.useRef(null);
+  if (!mirrorSyncRef.current) mirrorSyncRef.current = createMirrorSync(setMirror);
   accountsRef.current = accounts;
   transactionsRef.current = transactions;
 
@@ -97,6 +100,12 @@ export default function App() {
   useEffect(() => {
     loadGlobalState();
   }, []);
+
+  // Keep the native read-only copy of categories/accounts current (debounced, skipped when unchanged).
+  useEffect(() => {
+    if (!isQuickLogAvailable()) return;
+    mirrorSyncRef.current.update({ outflowCategories, inflowCategories, accounts });
+  }, [outflowCategories, inflowCategories, accounts]);
 
   // Fold items written by native code into the ledger whenever the app returns to the foreground.
   useEffect(() => {

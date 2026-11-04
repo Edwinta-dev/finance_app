@@ -9,3 +9,7 @@ Native code (notification, tile, listeners) cannot safely write AsyncStorage, so
 - **Accounts:** the item's `accountId` if it still exists, else the favourite account. With no accounts, items stay in the inbox.
 - **Balances:** `applyTransactionsToAccounts` is shared with `handleLogTransaction`, so native-logged and in-app transactions move balances identically.
 - **Storage seam:** `InboxStorage` lets the JVM tests use an in-memory fake; JSON uses `org.json` (test dependency `org.json:json`).
+
+## Mirror (issue #14)
+
+Native code reads categories and accounts from a separate SharedPreferences key (`mirror`) written by `setMirror(json)`. `buildMirror` whitelists `{outflowCategories, inflowCategories, accounts:[{id,name}]}` so balances and transactions can never leak into native storage. `createMirrorSync` debounces (500 ms) and skips unchanged payloads; the account effect depends on `accounts`, but balance-only changes produce an identical payload and are not re-sent.

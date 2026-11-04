@@ -6,9 +6,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class QuickLogModule : Module() {
-  private val inbox: InboxStore by lazy {
-    InboxStore(SharedPrefsInboxStorage(appContext.reactContext ?: throw IllegalStateException("No context")))
-  }
+  private val context get() = appContext.reactContext ?: throw IllegalStateException("No context")
+  private val inbox: InboxStore by lazy { InboxStore(SharedPrefsInboxStorage(context, "pending")) }
+  private val mirror: MirrorStore by lazy { MirrorStore(SharedPrefsInboxStorage(context, "mirror")) }
 
   override fun definition() = ModuleDefinition {
     Name("QuickLog")
@@ -18,6 +18,11 @@ class QuickLogModule : Module() {
     AsyncFunction("getPending") {
       // Returned as a JSON string array parsed back into maps by Expo.
       inbox.getPending().map { toMap(it.toJson()) }
+    }
+
+    /** Stores {outflowCategories, inflowCategories, accounts:[{id,name}]}; JS never sends balances. */
+    AsyncFunction("setMirror") { json: String ->
+      mirror.save(json)
     }
 
     AsyncFunction("ack") { ids: List<String> ->

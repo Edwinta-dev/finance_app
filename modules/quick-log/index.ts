@@ -23,3 +23,9 @@ export async function ack(ids: string[]): Promise<void> {
   if (!QuickLogModule || ids.length === 0) return;
   await QuickLogModule.ack(ids);
 }
+
+/** Stores the read-only categories/accounts copy for native code. */
+export async function setMirror(json: string): Promise<void> {
+  if (!QuickLogModule) return;
+  await QuickLogModule.setMirror(json);
+}
