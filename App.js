@@ -14,6 +14,7 @@ import {
   round2, parseMoney, parsePositiveMoney, parseNonNegativeMoney, parseRate, parseIsoDate, safeNumber
 } from './src/utils/validation';
 import { formatDate, monthKeyOf } from './src/utils/dates';
+import { signedEffect, migrateAdjustments } from './src/utils/ledger';
 
 export default function App() {
   const mainScrollRef = React.useRef(null);
@@ -115,7 +116,7 @@ export default function App() {
 
       // Sanitise anything that a previous (unvalidated) version may have stored as NaN/null.
       let parsedAccs = (Array.isArray(storedAccs) ? storedAccs : []).map(a => ({ ...a, balance: safeNumber(a.balance) }));
-      let parsedTxs = (Array.isArray(storedTxs) ? storedTxs : []).map(t => ({ ...t, amount: safeNumber(t.amount) }));
+      let parsedTxs = migrateAdjustments((Array.isArray(storedTxs) ? storedTxs : []).map(t => ({ ...t, amount: safeNumber(t.amount) })));
       const parsedRecs = (Array.isArray(storedRecs) ? storedRecs : []).map(r => ({ ...r, amount: safeNumber(r.amount) }));
 
       if (storedOutflowCats) setOutflowCategories(storedOutflowCats);
@@ -229,24 +230,66 @@ export default function App() {
     ['@budget_envelope_allocations', nextAllocationsObject]
   ]);
 
-  const handleCreateAccount = () => {
+  // Returns true when the account was created so the caller can close its form.
+  const handleCreateAccount = (interestInput) => {
     const name = newAccountName.trim();
     const balance = parseMoney(newAccountBalance);
-    if (!name || balance === null) return Alert.alert("Error", "Enter an account name and a valid numeric starting balance.");
-    const currentYearMonth = monthKeyOf(new Date());
+    if (!name || balance === null) { Alert.alert("Error", "Enter an account name and a valid numeric starting balance."); return false; }
+    const hasRate = interestInput !== undefined && String(interestInput).trim() !== '';
+    const rate = hasRate ? parseRate(interestInput) : 0;
+    if (rate === null) { Alert.alert("Invalid Rate", "Enter an interest rate between 0 and 100."); return false; }
 
     const updated = [...accounts, { 
       id: Date.now().toString(), 
       name, 
       balance, 
       isFavorite: accounts.length === 0,
-      interestRate: 0.0,
-      lastInterestCompoundedMonth: currentYearMonth
+      interestRate: rate,
+      lastInterestCompoundedMonth: monthKeyOf(new Date())
     }];
     setAccounts(updated);
+    if (accounts.length === 0) setSelectedAccountId(updated[0].id);
     syncCache(updated, transactions, outflowCategories, inflowCategories, recurringTransactions);
     setNewAccountName('');
     setNewAccountBalance('');
+    return true;
+  };
+
+  // Edit name / balance / rate in one atomic update. A balance change is recorded as an adjustment.
+  const handleUpdateAccount = (id, { name, balance, interestRate }) => {
+    const target = accounts.find(a => a.id === id);
+    if (!target) return false;
+    const nextName = (name || '').trim();
+    const nextBalance = parseMoney(balance);
+    const nextRate = parseRate(interestRate === '' || interestRate === undefined ? '0' : interestRate);
+    if (!nextName) { Alert.alert("Invalid Name", "Account name cannot be empty."); return false; }
+    if (nextBalance === null) { Alert.alert("Invalid Balance", "Enter the balance as a number."); return false; }
+    if (nextRate === null) { Alert.alert("Invalid Rate", "Enter an interest rate between 0 and 100."); return false; }
+
+    const diff = round2(nextBalance - target.balance);
+    const rateChanged = nextRate !== target.interestRate;
+    const updatedAccs = accounts.map(a => a.id !== id ? a : {
+      ...a,
+      name: nextName,
+      balance: nextBalance,
+      interestRate: nextRate,
+      // A new rate starts earning from this month; it never back-fills earlier months.
+      lastInterestCompoundedMonth: rateChanged ? monthKeyOf(new Date()) : a.lastInterestCompoundedMonth
+    });
+
+    let updatedTxs = transactions.map(t => (t.accountId === id ? { ...t, accountName: nextName } : t));
+    if (diff !== 0) {
+      updatedTxs = [{
+        id: Date.now().toString(), accountId: id, accountName: nextName, amount: Math.abs(diff),
+        category: 'Manual Tweak', type: 'Balance Adjustment', direction: diff > 0 ? 'up' : 'down',
+        date: formatDate(new Date()), note: diff > 0 ? "Adjusted Up (Edit)" : "Adjusted Down (Edit)"
+      }, ...updatedTxs];
+    }
+
+    setAccounts(updatedAccs);
+    setTransactions(updatedTxs);
+    syncCache(updatedAccs, updatedTxs, outflowCategories, inflowCategories, recurringTransactions);
+    return true;
   };
 
   const handleSetFavorite = (id) => {
@@ -261,7 +304,11 @@ export default function App() {
       if (acc.id === accountId) {
         const rate = parseRate(configuredPercentagePA);
         if (rate === null) { Alert.alert("Invalid Rate", "Enter an interest rate between 0 and 100."); return acc; }
-        return { ...acc, interestRate: rate };
+        return {
+          ...acc,
+          interestRate: rate,
+          lastInterestCompoundedMonth: rate !== acc.interestRate ? monthKeyOf(new Date()) : acc.lastInterestCompoundedMonth
+        };
       }
       return acc;
     });
@@ -308,28 +355,12 @@ export default function App() {
     const newDate = parseIsoDate(updatedDate);
     if (newDate === null) return Alert.alert("Invalid Date", "Use the format YYYY-MM-DD (a real calendar date).");
 
-    const updatedAccs = accounts.map(acc => {
-      if (acc.id === oldTx.accountId) {
-        let theoreticalRunningBalance = acc.balance;
-        
-        if (oldTx.type === 'Expense') theoreticalRunningBalance += oldTx.amount;
-        else if (oldTx.type === 'Inflow Credit') theoreticalRunningBalance -= oldTx.amount;
-        else if (oldTx.type === 'Balance Adjustment') {
-          if (oldTx.note && oldTx.note.includes("Up")) theoreticalRunningBalance -= oldTx.amount;
-          else theoreticalRunningBalance += oldTx.amount;
-        }
-
-        if (oldTx.type === 'Expense') theoreticalRunningBalance -= newAmountNum;
-        else if (oldTx.type === 'Inflow Credit') theoreticalRunningBalance += newAmountNum;
-        else if (oldTx.type === 'Balance Adjustment') {
-          if (oldTx.note && oldTx.note.includes("Up")) theoreticalRunningBalance += newAmountNum;
-          else theoreticalRunningBalance -= newAmountNum;
-        }
-
-        return { ...acc, balance: round2(theoreticalRunningBalance) };
-      }
-      return acc;
-    });
+    const editedTx = { ...oldTx, amount: newAmountNum };
+    const updatedAccs = accounts.map(acc => (
+      acc.id === oldTx.accountId
+        ? { ...acc, balance: round2(acc.balance - signedEffect(oldTx) + signedEffect(editedTx)) }
+        : acc
+    ));
 
     const updatedTxs = transactions.map(t => {
       if (t.id === txId) {
@@ -360,7 +391,7 @@ export default function App() {
     const formattedDate = formatDate(new Date());
 
     const updatedAccs = accounts.map(a => a.id === reconAccountId ? { ...a, balance: newBalNum } : a);
-    const updatedTxs = [{ id: Date.now().toString(), accountId: reconAccountId, accountName: target.name, amount: Math.abs(diff), category: 'Manual Tweak', type: 'Balance Adjustment', date: formattedDate, note: diff > 0 ? "Adjusted Up" : "Adjusted Down" }, ...transactions];
+    const updatedTxs = [{ id: Date.now().toString(), accountId: reconAccountId, accountName: target.name, amount: Math.abs(diff), category: 'Manual Tweak', type: 'Balance Adjustment', direction: diff > 0 ? 'up' : 'down', date: formattedDate, note: diff > 0 ? "Adjusted Up" : "Adjusted Down" }, ...transactions];
 
     setAccounts(updatedAccs);
     setTransactions(updatedTxs);
@@ -381,7 +412,7 @@ export default function App() {
           updatedAccs = updatedAccs.map((a, i) => (i === 0 ? { ...a, isFavorite: true } : a));
         }
 
-        const updatedTxs = [{ id: Date.now().toString(), accountId: id, accountName: target.name, amount: Math.abs(target.balance), category: "Account Deletion", type: "Balance Adjustment", date: formatDate(new Date()), note: target.balance >= 0 ? "Adjusted Down (Deleted)" : "Adjusted Up (Deleted)" }, ...transactions];
+        const updatedTxs = [{ id: Date.now().toString(), accountId: id, accountName: target.name, amount: Math.abs(target.balance), category: "Account Deletion", type: "Balance Adjustment", direction: target.balance >= 0 ? 'down' : 'up', date: formatDate(new Date()), note: target.balance >= 0 ? "Adjusted Down (Deleted)" : "Adjusted Up (Deleted)" }, ...transactions];
 
         // Never leave the quick-log pointing at an account that no longer exists.
         if (selectedAccountId === id) {
@@ -447,17 +478,9 @@ export default function App() {
     Alert.alert("Delete Transaction", "Permanently remove this log record?", [
       { text: "Cancel", style: "cancel" },
       { text: "Remove", style: "destructive", onPress: () => {
-        const updatedAccs = accounts.map(acc => {
-          if (acc.id === targetTx.accountId) {
-            if (targetTx.type === 'Expense') return { ...acc, balance: acc.balance + targetTx.amount };
-            if (targetTx.type === 'Inflow Credit') return { ...acc, balance: acc.balance - targetTx.amount };
-            if (targetTx.type === 'Balance Adjustment') {
-              if (targetTx.note && targetTx.note.includes("Up")) return { ...acc, balance: acc.balance - targetTx.amount };
-              else return { ...acc, balance: acc.balance + targetTx.amount };
-            }
-          }
-          return acc;
-        });
+        const updatedAccs = accounts.map(acc => (
+          acc.id === targetTx.accountId ? { ...acc, balance: round2(acc.balance - signedEffect(targetTx)) } : acc
+        ));
 
         const updatedTxs = transactions.filter(t => t.id !== txId);
         setAccounts(updatedAccs);
@@ -541,7 +564,8 @@ export default function App() {
           <AccountsScreen 
             accounts={accounts} newAccountName={newAccountName} setNewAccountName={setNewAccountName}
             newAccountBalance={newAccountBalance} setNewAccountBalance={setNewAccountBalance}
-            onCreateAccount={handleCreateAccount} onSetFavorite={handleSetFavorite}
+            onCreateAccount={handleCreateAccount} onUpdateAccount={handleUpdateAccount} onSetFavorite={handleSetFavorite}
+            onAddRecurring={handleAddRecurring}
             onTriggerReconcile={(id) => { setReconAccountId(id); setReconModalVisible(true); }}
             onDeleteAccount={handleDeleteAccount} 
             outflowCategories={outflowCategories} inflowCategories={inflowCategories}

@@ -3,21 +3,8 @@ import React, { useMemo } from 'react';
 import { View } from 'react-native';
 import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
 import { screenWidth } from '../styles/theme.js';
-
-function getYearMonthStr(dateStr) {
-  if (!dateStr) return '';
-  const clean = dateStr.trim();
-  if (clean.includes('-')) {
-    const parts = clean.split('-');
-    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}`;
-  }
-  if (clean.includes('/')) {
-    const parts = clean.split('/');
-    if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}`; 
-    if (parts[2] && parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}`; 
-  }
-  return '';
-}
+import { getYearMonthStr } from '../utils/dates';
+import { signedEffect } from '../utils/ledger';
 
 export function BudgetGraph({ accounts, transactions, recurringTransactions, isExpenseType }) {
   const graphWidth = screenWidth - 60;
@@ -86,15 +73,8 @@ export function BudgetGraph({ accounts, transactions, recurringTransactions, isE
       if (!monthlyNetDeltaMap[txKey]) monthlyNetDeltaMap[txKey] = 0;
       if (!monthlyExpenseMap[txKey]) monthlyExpenseMap[txKey] = 0;
 
-      if (tx.type === 'Expense') {
-        monthlyNetDeltaMap[txKey] -= tx.amount;
-        monthlyExpenseMap[txKey] += tx.amount;
-      } else if (tx.type === 'Inflow Credit') {
-        monthlyNetDeltaMap[txKey] += tx.amount;
-      } else if (tx.type === 'Balance Adjustment') {
-        if (tx.note && tx.note.includes('Up')) monthlyNetDeltaMap[txKey] += tx.amount;
-        else monthlyNetDeltaMap[txKey] -= tx.amount;
-      }
+      monthlyNetDeltaMap[txKey] += signedEffect(tx);
+      if (tx.type === 'Expense') monthlyExpenseMap[txKey] += tx.amount;
     });
 
     const historicalMonthKeys = Object.keys(monthlyNetDeltaMap);

@@ -7,8 +7,9 @@ export function AssetsView({
   accounts, recurringTransactions, outflowCategories, inflowCategories,
   categoryMode, setCategoryType, typedCategoryName, setTypedCategoryName,
   isAddingAutomation, setIsAddingAutomation, recLabel, setRecLabel, recAmount, setRecAmount,
-  recIsIncoming, setRecIsIncoming,
-  onAddAccountPress, triggerAccountEditingFlow, onDeleteAccount,
+  recIsIncoming, setRecIsIncoming, recFrequency, setRecFrequency, recAccountId, setRecAccountId,
+  recCategory, setRecCategory,
+  onSetFavorite, onTriggerReconcile, onAddAccountPress, triggerAccountEditingFlow, onDeleteAccount,
   triggerNewAutomationFlow, triggerEditRecurringFlow, executeSaveAutomationSubmit,
   executeCategorySubmit, onDeleteOutflowCategory, onDeleteInflowCategory, onHardResetApp
 }) {
@@ -35,7 +36,15 @@ export function AssetsView({
                 </Text>
               </View>
               {/* FIXED: Collapsed old multi-button rows entirely into clear, high-utility Edit/Del paths */}
-              <View style={{ flexDirection: 'row', gap: 6 }}>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 150 }}>
+                {!acc.isFavorite && (
+                  <TouchableOpacity style={{ borderColor: '#94a3b8', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 }} onPress={() => onSetFavorite(acc.id)}>
+                    <Text style={{ color: '#94a3b8', fontSize: 11, fontWeight: '700' }}>Fave</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={{ borderColor: '#fb923c', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 }} onPress={() => onTriggerReconcile(acc.id)}>
+                  <Text style={{ color: '#fb923c', fontSize: 11, fontWeight: '700' }}>Fix</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={{ borderColor: '#38bdf8', borderWidth: 1, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 }} onPress={() => triggerAccountEditingFlow(acc)}>
                   <Text style={{ color: '#38bdf8', fontSize: 11, fontWeight: '700' }}>Edit</Text>
                 </TouchableOpacity>
@@ -63,6 +72,30 @@ export function AssetsView({
             <Text style={{ color: '#f8fafc', fontWeight: '700', fontSize: 13, marginBottom: 8 }}>Deploy Automation Rule Specification</Text>
             <TextInput style={[theme.input, { height: 40, fontSize: 13, backgroundColor: '#334155' }]} placeholder="Schedule Name Memo (e.g., Internet Bill)" placeholderTextColor="#64748b" value={recLabel} onChangeText={setRecLabel} />
             <TextInput style={[theme.input, { height: 40, fontSize: 13, backgroundColor: '#334155' }]} placeholder="Cash Value Amount ($)" placeholderTextColor="#64748b" keyboardType="numeric" value={recAmount} onChangeText={setRecAmount} />
+            <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Frequency:</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+              {['Weekly', 'Bi-Weekly', 'Monthly', 'Annual'].map(f => (
+                <TouchableOpacity key={f} style={[theme.pill, recFrequency === f && theme.activePill]} onPress={() => setRecFrequency(f)}>
+                  <Text style={[theme.pillText, recFrequency === f && theme.activePillText]}>{f}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Account:</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+              {accounts.map(a => (
+                <TouchableOpacity key={a.id} style={[theme.pill, recAccountId === a.id && theme.activePill]} onPress={() => setRecAccountId(a.id)}>
+                  <Text style={[theme.pillText, recAccountId === a.id && theme.activePillText]}>{a.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Category:</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+              {(recIsIncoming ? inflowCategories : outflowCategories).map(c => (
+                <TouchableOpacity key={c} style={[theme.pill, recCategory === c && theme.activePill]} onPress={() => setRecCategory(c)}>
+                  <Text style={[theme.pillText, recCategory === c && theme.activePillText]}>{c}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <View style={{ flexDirection: 'row', gap: 4, marginBottom: 10 }}>
               <TouchableOpacity style={{ flex: 1, paddingVertical: 6, borderRadius: 4, alignItems: 'center', backgroundColor: !recIsIncoming ? '#f87171' : '#334155' }} onPress={() => setRecIsIncoming(false)}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: !recIsIncoming ? '#0f172a' : '#94a3b8' }}>Expense (-)</Text>
