@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform } from 'react-native';
 
-import { theme, screenWidth } from './src/styles/theme';
+import { theme } from './src/styles/theme';
 import { SummaryScreen } from './src/screens/SummaryScreen';
 import { TransactionsScreen } from './src/screens/TransactionsScreen'; 
 import { AccountsScreen } from './src/screens/Vault';

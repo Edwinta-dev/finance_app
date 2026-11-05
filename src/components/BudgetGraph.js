@@ -114,10 +114,10 @@ export function BudgetGraph({ accounts, transactions, recurringTransactions, isE
     });
   }, [accounts, transactions, recurringTransactions, isExpenseType, timelinePoints]);
 
-  const { peakDataValue, minDataValue, valueDeltaRange } = useMemo(() => {
+  const { minDataValue, valueDeltaRange } = useMemo(() => {
     const peak = Math.max(...finalGraphDataPoints.map(p => p.value), 10);
     const min = Math.min(...finalGraphDataPoints.map(p => p.value), 0);
-    return { peakDataValue: peak, minDataValue: min, valueDeltaRange: peak - min };
+    return { minDataValue: min, valueDeltaRange: peak - min };
   }, [finalGraphDataPoints]);
 
   const spacingOffset = (graphWidth / finalGraphDataPoints.length);
