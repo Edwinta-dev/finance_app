@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView, Platform, Keyboard, Animated, Dimensions 
 } from 'react-native';
 import { theme } from '../styles/theme';
+import { parsePositiveMoney } from '../utils/validation';
 
 const { width: windowWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -55,8 +56,8 @@ export function QuickLogModal({
   });
 
   const handleFormSubmitCommit = () => {
-    if (!expenseAmount || !selectedAccountId) {
-      alert('Please state a valid input amount and select an active account.');
+    if (parsePositiveMoney(expenseAmount) === null || !selectedAccountId) {
+      alert('Please enter an amount greater than zero and select an active account.');
       return;
     }
 
@@ -75,7 +76,8 @@ export function QuickLogModal({
         } else {
           onSaveRecurring({
             label: transactionDescription.trim() || `${expenseCategory} Plan`,
-            amount: parseFloat(expenseAmount),
+            amount: parsePositiveMoney(expenseAmount),
+            accountId: selectedAccountId,
             category: expenseCategory,
             description: 'Automated Account Schedule',
             frequency: recFrequency,
