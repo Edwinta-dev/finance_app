@@ -1,94 +1,100 @@
 // src/screens/Vault/utils/optimizerEngine.js
+// Hard-coded rate table: these are NOT fetched live and will drift as banks change their terms.
+const OCBC_CAP = 100000;
+const SCB_CAP = 100000;
 
-export function runYieldOptimization({
+function runYieldOptimization({
   hysaCapital,
   lockAwayCapital,
   lockDuration,
   salaryInput,
-  allowInvestment,
-  allowInsurance
+  allowInvestment
 }) {
-  const totalCash = parseFloat(hysaCapital) || 0;
-  const lockCash = parseFloat(lockAwayCapital) || 0;
-  const salary = parseFloat(salaryInput) || 0;
-  
-  let allocations = [];
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) && n > 0 ? n : 0; };
+  const totalCash = num(hysaCapital);
+  const lockCash = num(lockAwayCapital);
+  const salary = num(salaryInput);
+
+  const allocations = [];
   let totalInterest = 0;
+  let unallocated = 0;
 
-  // 🏆 Pass 1: OCBC 360 Account Simulation
+  // Pass 1: OCBC 360 (fills first, up to its cap)
   if (totalCash > 0) {
-    let ocbcCapital = Math.min(totalCash, 100000);
-    let yieldAccumulator = 0.05; // Base Rate
+    const ocbcCapital = Math.min(totalCash, OCBC_CAP);
+    const salaryMet = salary >= 1800;
+    const growthMet = totalCash >= 3000;
+    const investMet = allowInvestment && totalCash >= 20000;
 
-    if (salary >= 1800) yieldAccumulator += 1.00; 
-    if (totalCash >= 3000) yieldAccumulator += 0.40; 
-    if (allowInvestment && totalCash >= 20000) yieldAccumulator += 1.00;
+    let rate = 0.05; // base
+    if (salaryMet) rate += 1.00;
+    if (growthMet) rate += 0.40;
+    if (investMet) rate += 1.00;
 
-    const ocbcInterestReturn = ocbcCapital * (yieldAccumulator / 100);
-    totalInterest += ocbcInterestReturn;
+    totalInterest += ocbcCapital * (rate / 100);
 
     allocations.push({
       id: 'ocbc_360',
       bank: 'OCBC',
       product: '360 Account Optimization',
       allocatedValue: ocbcCapital,
-      rate: yieldAccumulator,
+      rate,
       bullets: [
         `Allocated capital segment: $${ocbcCapital.toFixed(2)}`,
-        salary >= 1800 ? '✓ Salary credit requirement met (+1.00%)' : '✕ Increase salary above $1,800 to capture bonus multiplier',
-        '✓ Month-on-month balance growth clear (+0.40%)',
-        allowInvestment ? '✓ Investment vehicle booster authorized (+1.00%)' : '🛑 Wealth allocations disabled via filter sliders'
+        salaryMet ? '✓ Salary credit requirement met (+1.00%)' : '✕ Increase salary above $1,800 to capture bonus multiplier',
+        growthMet ? '✓ Month-on-month balance growth assumed (+0.40%)' : '✕ Balance under $3,000: growth bonus not assumed',
+        investMet
+          ? '✓ Investment vehicle booster authorized (+1.00%)'
+          : (allowInvestment ? '✕ Needs $20,000+ to assume the investment bonus' : '🛑 Wealth allocations disabled via filter')
       ]
     });
   }
 
-  // 🏆 Pass 2: Standard Chartered BonusSaver Simulation
-  if (totalCash > 100000) {
-    let scbCapital = Math.min(totalCash - 100000, 100000);
-    if (scbCapital > 0) {
-      let scbYield = 0.05;
-      if (salary >= 3000) scbYield += 0.90;
+  // Pass 2: Standard Chartered BonusSaver (takes the overflow above OCBC's cap)
+  if (totalCash > OCBC_CAP) {
+    const scbCapital = Math.min(totalCash - OCBC_CAP, SCB_CAP);
+    const salaryMet = salary >= 3000;
+    const rate = 0.05 + (salaryMet ? 0.90 : 0);
+    totalInterest += scbCapital * (rate / 100);
 
-      const scbInterestReturn = scbCapital * (scbYield / 100);
-      totalInterest += scbInterestReturn;
-
-      allocations.push({
-        id: 'scb_saver',
-        bank: 'SCB',
-        product: 'Bonus$aver Optimization',
-        allocatedValue: scbCapital,
-        rate: scbYield,
-        bullets: [
-          `Allocated tier segment: $${scbCapital.toFixed(2)}`,
-          salary >= 3000 ? '✓ Premium payroll Purpose Code SALA verified (+0.90%)' : '✕ Salary under $3,000 threshold barrier'
-        ]
-      });
-    }
+    allocations.push({
+      id: 'scb_saver',
+      bank: 'SCB',
+      product: 'Bonus$aver Optimization',
+      allocatedValue: scbCapital,
+      rate,
+      bullets: [
+        `Allocated tier segment: $${scbCapital.toFixed(2)}`,
+        salaryMet ? '✓ Premium payroll Purpose Code SALA verified (+0.90%)' : '✕ Salary under $3,000 threshold barrier'
+      ]
+    });
+    unallocated = Math.max(0, totalCash - OCBC_CAP - SCB_CAP);
   }
 
-  // 🏆 Pass 3: GXS Time-Locked Fixed Pocket Allocator
+  // Pass 3: GXS time-locked pocket (a separate pool, not part of the cap-fill above)
   if (lockCash > 0) {
-    let applicableRate = 0.88; 
-    if (lockDuration >= 12) applicableRate += 0.72;
-    else if (lockDuration >= 4) applicableRate += 0.52;
-    else if (lockDuration >= 3) applicableRate += 0.34;
+    let rate = 0.88;
+    if (lockDuration >= 12) rate += 0.72;
+    else if (lockDuration >= 4) rate += 0.52;
+    else if (lockDuration >= 3) rate += 0.34;
 
-    const gxsInterestReturn = lockCash * (applicableRate / 100);
-    totalInterest += gxsInterestReturn;
+    totalInterest += lockCash * (rate / 100);
 
     allocations.push({
       id: 'gxs_vault',
       bank: 'GXS',
       product: `${lockDuration}-Month locked Boost Pocket`,
       allocatedValue: lockCash,
-      rate: applicableRate,
+      rate,
       bullets: [
         `Locked assets segment pool: $${lockCash.toFixed(2)}`,
         `✓ Contract lockup duration parameters confirmed: ${lockDuration} Months`,
-        '⚠️ Early liquidation triggers immediate regulatory yield clawback'
+        '⚠️ Early liquidation may forfeit the bonus interest'
       ]
     });
   }
 
-  return { allocations, totalInterest };
+  return { allocations, totalInterest, unallocated };
 }
+
+module.exports = { runYieldOptimization };

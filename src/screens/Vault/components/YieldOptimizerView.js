@@ -5,14 +5,14 @@ import { theme } from '../../../styles/theme';
 
 export function YieldOptimizerView({
   hysaCapital, setHysaCapital, lockAwayCapital, setLockAwayCapital, lockDuration, setLockDuration,
-  salaryInput, setSalaryInput, allowInvestment, setAllowInvestment, allowInsurance, setAllowInsurance,
-  isOptimizationRendered, setIsOptimizationResultVisible, simulatedResults, netAnnualEarnings, onOptimize
+  salaryInput, setSalaryInput, allowInvestment, setAllowInvestment,
+  isOptimizationRendered, setIsOptimizationResultVisible, simulatedResults, netAnnualEarnings, unallocatedCapital, onOptimize
 }) {
   if (!isOptimizationRendered) {
     return (
       <View style={theme.card}>
         <Text style={[theme.cardTitle, { color: '#38bdf8', marginBottom: 4 }]}>Yield Matrix Profiler Parameters</Text>
-        <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 16 }}>Set allocation constraints to process against cloud-scraped rates registries.</Text>
+        <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 16 }}>Projects a one-year return from a built-in rate table. Rates are hard-coded, not live, so check each bank's current terms.</Text>
         
         <Text style={{ fontSize: 11, color: '#cbd5e1', fontWeight: '600', marginBottom: 4 }}>High-Yield Instant Capital Allocation ($)</Text>
         <TextInput style={[theme.input, { backgroundColor: '#0f172a' }]} keyboardType="numeric" value={hysaCapital} onChangeText={setHysaCapital} />
@@ -39,12 +39,7 @@ export function YieldOptimizerView({
           </TouchableOpacity>
         </View>
 
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, marginBottom: 15 }}>
-          <Text style={{ fontSize: 12, color: '#94a3b8', fontWeight: '600' }}>Authorize Insurance Underwriting Plans?</Text>
-          <TouchableOpacity style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: allowInsurance ? '#34d399' : '#475569' }} onPress={() => setAllowInsurance(!allowInsurance)}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: '#0f172a' }}>{allowInsurance ? 'ALLOWED' : 'MUTED'}</Text>
-          </TouchableOpacity>
-        </View>
+        <View style={{ height: 15 }} />
 
         <TouchableOpacity style={{ backgroundColor: '#38bdf8', paddingVertical: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }} onPress={onOptimize}>
           <Text style={{ color: '#0f172a', fontWeight: '800', fontSize: 14 }}>⚡ Run Structural Allocator Engine</Text>
@@ -77,10 +72,17 @@ export function YieldOptimizerView({
         </View>
       ))}
 
+      {unallocatedCapital > 0 && (
+        <View style={{ backgroundColor: 'rgba(251, 146, 60, 0.08)', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#fb923c' }}>
+          <Text style={{ color: '#fb923c', fontSize: 12, fontWeight: '700' }}>${unallocatedCapital.toFixed(2)} could not be placed</Text>
+          <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 2 }}>It exceeds the combined caps of the modelled products and is excluded from the forecast.</Text>
+        </View>
+      )}
+
       <View style={{ backgroundColor: '#1e293b', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#34d399', shadowColor: '#34d399', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 }}>
-        <Text style={{ color: '#34d399', fontWeight: '700', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>1-Year Total Compounding Yield Forecast</Text>
+        <Text style={{ color: '#34d399', fontWeight: '700', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>1-Year Interest Forecast (simple interest)</Text>
         <Text style={{ color: '#f8fafc', fontSize: 32, fontWeight: '800', marginTop: 4 }}>+${netAnnualEarnings.toFixed(2)}</Text>
-        <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, lineHeight: 15 }}>Net interest payout generated purely from on-device water-filling matrix calculations.</Text>
+        <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 4, lineHeight: 15 }}>Estimated from a hard-coded rate table; ignores fees, clawbacks and the effort of moving money. Not financial advice.</Text>
       </View>
     </View>
   );

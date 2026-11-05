@@ -41,11 +41,11 @@ export function useVaultState({
   const [lockDuration, setLockDuration] = useState(12);
   const [salaryInput, setSalaryInput] = useState('3500');
   const [allowInvestment, setAllowInvestment] = useState(true);
-  const [allowInsurance, setAllowInsurance] = useState(true);
   
   const [isOptimizationRendered, setIsOptimizationResultVisible] = useState(false);
   const [simulatedResults, setSimulatedResults] = useState([]);
   const [netAnnualEarnings, setNetAnnualEarnings] = useState(0);
+  const [unallocatedCapital, setUnallocatedCapital] = useState(0);
 
   // Switching direction swaps the category list, so reset the category to a valid one.
   const setRecIsIncoming = (isIncoming) => {
@@ -132,11 +132,12 @@ export function useVaultState({
   };
 
   const handleCalculateOptimization = () => {
-    const { allocations, totalInterest } = runYieldOptimization({
-      hysaCapital, lockAwayCapital, lockDuration, salaryInput, allowInvestment, allowInsurance
+    const { allocations, totalInterest, unallocated } = runYieldOptimization({
+      hysaCapital, lockAwayCapital, lockDuration, salaryInput, allowInvestment
     });
     setSimulatedResults(allocations);
     setNetAnnualEarnings(totalInterest);
+    setUnallocatedCapital(unallocated);
     setIsOptimizationResultVisible(true);
   };
 
@@ -165,9 +166,8 @@ export function useVaultState({
     lockDuration, setLockDuration,
     salaryInput, setSalaryInput,
     allowInvestment, setAllowInvestment,
-    allowInsurance, setAllowInsurance,
     isOptimizationRendered, setIsOptimizationResultVisible,
-    simulatedResults, netAnnualEarnings,
+    simulatedResults, netAnnualEarnings, unallocatedCapital,
     triggerAccountEditingFlow, triggerNewAutomationFlow, triggerEditRecurringFlow,
     executeSaveAutomationSubmit, executeDeleteRecurring, executeCategorySubmit,
     handleCalculateOptimization
