@@ -16,6 +16,8 @@ import {
 import { formatDate, monthKeyOf } from './src/utils/dates';
 import { signedEffect, migrateAdjustments } from './src/utils/ledger';
 import { normalizeAllocations } from './src/utils/budget';
+import { applyDueRecurring } from './src/utils/recurring';
+import { catchUpInterest } from './src/utils/interest';
 
 export default function App() {
   const mainScrollRef = React.useRef(null);
@@ -122,7 +124,6 @@ export default function App() {
 
       if (storedOutflowCats) setOutflowCategories(storedOutflowCats);
       if (storedInflowCats) setInflowCategories(storedInflowCats);
-      setRecurringTransactions(parsedRecs);
 
       const today = new Date();
       const currentYearMonth = monthKeyOf(today);
@@ -136,53 +137,31 @@ export default function App() {
 
       setEnvelopeAllocations(normalizeAllocations(storedEnvelopes, currentYearMonth));
 
-      let interestCompoundedThisSession = false;
-      let freshSystemTxs = [];
-
-      parsedAccs = parsedAccs.map(acc => {
-        const annualRatePA = acc.interestRate !== undefined ? safeNumber(acc.interestRate) : 0.0;
-        const lastCompoundedMarker = acc.lastInterestCompoundedMonth || '';
-
-        if (annualRatePA > 0 && lastCompoundedMarker !== '' && lastCompoundedMarker !== currentYearMonth) {
-          const monthlyYieldRate = annualRatePA / 100 / 12;
-          const interestEarnedPayout = round2(acc.balance * monthlyYieldRate);
-
-          if (interestEarnedPayout > 0.005) {
-            interestCompoundedThisSession = true;
-            const adjustedBalance = round2(acc.balance + interestEarnedPayout);
-            const formattedDate = formatDate(today);
-
-            freshSystemTxs.push({
-              id: `interest-${acc.id}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-              accountId: acc.id,
-              accountName: acc.name,
-              amount: interestEarnedPayout,
-              category: 'Bank Interest',
-              type: 'Inflow Credit',
-              date: formattedDate,
-              note: `Automated Interest Compound (${annualRatePA}% P.A.)`
-            });
-
-            return {
-              ...acc,
-              balance: adjustedBalance,
-              interestRate: annualRatePA,
-              lastInterestCompoundedMonth: currentYearMonth
-            };
-          }
-        }
-
-        return {
-          ...acc,
-          interestRate: annualRatePA,
-          lastInterestCompoundedMonth: acc.lastInterestCompoundedMonth || currentYearMonth
-        };
+      // 1) Post recurring rules that came due while the app was closed (idempotent, deterministic ids).
+      const recurringResult = applyDueRecurring({
+        accounts: parsedAccs, transactions: parsedTxs, recurring: parsedRecs, todayIso: formatDate(today)
       });
+      parsedAccs = recurringResult.accounts;
+      parsedTxs = recurringResult.transactions;
+      const nextRecs = recurringResult.recurring;
+      setRecurringTransactions(nextRecs);
 
-      if (interestCompoundedThisSession) {
-        parsedTxs = [...freshSystemTxs, ...parsedTxs];
-        Alert.alert("Interest Compounded", "New automated monthly interest earnings have been calculated and credited across your asset portfolios.");
-      }
+      // 2) Credit interest for every month elapsed since each account's marker.
+      let interestMonths = 0;
+      const interestTxs = [];
+      parsedAccs = parsedAccs.map(acc => {
+        const result = catchUpInterest(acc, currentYearMonth);
+        interestMonths += result.months;
+        interestTxs.push(...result.txs);
+        return result.account;
+      });
+      if (interestTxs.length > 0) parsedTxs = [...interestTxs, ...parsedTxs];
+
+      const notices = [];
+      if (recurringResult.postedCount > 0) notices.push(`${recurringResult.postedCount} recurring transaction(s) were posted.`);
+      if (recurringResult.skippedCount > 0) notices.push(`${recurringResult.skippedCount} recurring entr${recurringResult.skippedCount === 1 ? 'y was' : 'ies were'} skipped because the linked account no longer exists.`);
+      if (interestMonths > 0) notices.push(`Interest for ${interestMonths} account-month(s) was credited.`);
+      if (notices.length > 0) Alert.alert("Catch-up Applied", notices.join("\n"));
 
       setAccounts(parsedAccs);
       setTransactions(parsedTxs);
@@ -194,7 +173,8 @@ export default function App() {
 
       await AsyncStorage.multiSet([
         ['@budget_accounts', JSON.stringify(parsedAccs)],
-        ['@budget_transactions', JSON.stringify(parsedTxs)]
+        ['@budget_transactions', JSON.stringify(parsedTxs)],
+        ['@budget_recurring', JSON.stringify(nextRecs)]
       ]);
       storageReadyRef.current = true;
     } catch (e) {
@@ -268,14 +248,14 @@ export default function App() {
     if (nextRate === null) { Alert.alert("Invalid Rate", "Enter an interest rate between 0 and 100."); return false; }
 
     const diff = round2(nextBalance - target.balance);
-    const rateChanged = nextRate !== target.interestRate;
+    const startsEarning = !(target.interestRate > 0) && nextRate > 0;
     const updatedAccs = accounts.map(a => a.id !== id ? a : {
       ...a,
       name: nextName,
       balance: nextBalance,
       interestRate: nextRate,
-      // A new rate starts earning from this month; it never back-fills earlier months.
-      lastInterestCompoundedMonth: rateChanged ? monthKeyOf(new Date()) : a.lastInterestCompoundedMonth
+      // A rate added to a zero-rate account starts earning this month; it never back-fills earlier months.
+      lastInterestCompoundedMonth: startsEarning ? monthKeyOf(new Date()) : a.lastInterestCompoundedMonth
     });
 
     let updatedTxs = transactions.map(t => (t.accountId === id ? { ...t, accountName: nextName } : t));
@@ -308,7 +288,8 @@ export default function App() {
         return {
           ...acc,
           interestRate: rate,
-          lastInterestCompoundedMonth: rate !== acc.interestRate ? monthKeyOf(new Date()) : acc.lastInterestCompoundedMonth
+          // Starting to earn interest begins this month; changing a non-zero rate keeps unpaid months owed.
+          lastInterestCompoundedMonth: !(acc.interestRate > 0) && rate > 0 ? monthKeyOf(new Date()) : acc.lastInterestCompoundedMonth
         };
       }
       return acc;
@@ -459,11 +440,13 @@ export default function App() {
   const handleAddRecurring = (newRecPayload) => {
     const amount = parsePositiveMoney(newRecPayload.amount);
     if (amount === null) return Alert.alert("Invalid Amount", "Enter a recurring amount greater than zero.");
-    newRecPayload = { ...newRecPayload, amount };
+    // First posting happens one full period from today; nothing is back-filled.
+    const todayIso = formatDate(new Date());
+    newRecPayload = { ...newRecPayload, amount, anchorDate: todayIso, lastAppliedDate: todayIso };
     const updated = [{ id: Date.now().toString(), ...newRecPayload }, ...recurringTransactions];
     setRecurringTransactions(updated);
     syncCache(accounts, transactions, outflowCategories, inflowCategories, updated);
-    Alert.alert("Success", "Automation rule registered successfully!");
+    Alert.alert("Rule Saved", "The first transaction will post one full period from today.");
   };
 
   const handleDeleteRecurring = (targetId) => {
@@ -493,7 +476,15 @@ export default function App() {
   const handleUpdateRecurringTransaction = (recId, nextRecObject) => {
       const amount = parsePositiveMoney(nextRecObject.amount);
       if (amount === null) return Alert.alert("Invalid Amount", "Enter a recurring amount greater than zero.");
+      const existing = recurringTransactions.find(r => r.id === recId);
+      if (!existing) return;
       nextRecObject = { ...nextRecObject, amount };
+      // Changing the cadence restarts the schedule from today; other edits keep the existing one.
+      if (nextRecObject.frequency !== existing.frequency) {
+        const todayIso = formatDate(new Date());
+        nextRecObject.anchorDate = todayIso;
+        nextRecObject.lastAppliedDate = todayIso;
+      }
       const updated = recurringTransactions.map(r => r.id === recId ? { ...r, ...nextRecObject } : r);
       setRecurringTransactions(updated);
       syncCache(accounts, transactions, outflowCategories, inflowCategories, updated);
