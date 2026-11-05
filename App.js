@@ -15,6 +15,7 @@ import {
 } from './src/utils/validation';
 import { formatDate, monthKeyOf } from './src/utils/dates';
 import { signedEffect, migrateAdjustments } from './src/utils/ledger';
+import { normalizeAllocations } from './src/utils/budget';
 
 export default function App() {
   const mainScrollRef = React.useRef(null);
@@ -133,7 +134,7 @@ export default function App() {
         setMonthlyBudgets({ [currentYearMonth]: legacyCap ? safeNumber(parseFloat(legacyCap)) : 0 });
       }
 
-      setEnvelopeAllocations(storedEnvelopes);
+      setEnvelopeAllocations(normalizeAllocations(storedEnvelopes, currentYearMonth));
 
       let interestCompoundedThisSession = false;
       let freshSystemTxs = [];

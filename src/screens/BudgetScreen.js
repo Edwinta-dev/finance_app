@@ -2,10 +2,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, ScrollView, 
-  Platform, Keyboard, Animated, Dimensions, Modal, Alert 
+  Platform, Keyboard, Modal, Alert 
 } from 'react-native';
 import Svg, { Rect, Line, Text as SvgText, G } from 'react-native-svg';
 import { theme, screenWidth } from '../styles/theme';
+import { parsePositiveMoney, parseNonNegativeMoney } from '../utils/validation';
+import { monthKeyOf, getYearMonthStr } from '../utils/dates';
+import { sumAllocations, planAllocation, planTransfer } from '../utils/budget';
+
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export function BudgetScreen({
   outflowCategories, transactions, monthlyBudgets, setMonthlyBudgets,
@@ -33,11 +38,14 @@ export function BudgetScreen({
 
   // --- LOCKED TIMEBOUND ANCHOR RESOLUTION ---
   const today = new Date();
-  const currentMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const currentMonthKey = monthKeyOf(today);
+  const currentMonthName = MONTH_NAMES[today.getMonth()];
   
   // FIXED: Default unassigned baseline values register cleanly as 0 instead of hardcoded fallbacks
   const activeCurrentMonthBudgetCap = monthlyBudgets[currentMonthKey] || 0;
   const isBudgetLockedForThisMonth = activeCurrentMonthBudgetCap > 0;
+  // Allocations are per month, so a new month starts with empty envelopes under a fresh ceiling.
+  const monthAllocs = envelopeAllocations[currentMonthKey] || {};
 
   useEffect(() => {
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -81,9 +89,8 @@ export function BudgetScreen({
 
   // --- TRIGGER INTERACTIVE LIFE VERIFICATION WINDOW ---
   const handlePreLockValidation = () => {
-    const freshCapNum = parseFloat(typedNewBudgetCap);
-    if (isNaN(freshCapNum) || freshCapNum <= 0) {
-      alert("Please enter a valid positive numeric budget limit.");
+    if (parsePositiveMoney(typedNewBudgetCap) === null) {
+      Alert.alert("Invalid Ceiling", "Please enter a valid positive numeric budget limit.");
       return;
     }
     Keyboard.dismiss();
@@ -92,7 +99,8 @@ export function BudgetScreen({
 
   // --- INITIALIZE MONTH ENVELOPE PLAN LOCK ---
   const executeLockMonthlyCeiling = () => {
-    const freshCapNum = parseFloat(typedNewBudgetCap);
+    const freshCapNum = parsePositiveMoney(typedNewBudgetCap);
+    if (freshCapNum === null || isBudgetLockedForThisMonth) { setIsConfirmModalVisible(false); return; }
     const nextBudgetsMap = { ...monthlyBudgets, [currentMonthKey]: freshCapNum };
     setMonthlyBudgets(nextBudgetsMap);
     onSaveCache(nextBudgetsMap, envelopeAllocations);
@@ -106,12 +114,7 @@ export function BudgetScreen({
     
     transactions.forEach(tx => {
       if (tx.type !== 'Expense') return;
-      let txMonth = '';
-      if (tx.date.includes('-')) txMonth = tx.date.substring(0, 7);
-      else if (tx.date.includes('/')) {
-        const parts = tx.date.split('/');
-        txMonth = `${parts[2]}-${String(parts[1]).padStart(2, '0')}`;
-      }
+      const txMonth = getYearMonthStr(tx.date);
 
       if (txMonth === currentMonthKey && mapping[tx.category] !== undefined) {
         mapping[tx.category] += tx.amount;
@@ -120,15 +123,28 @@ export function BudgetScreen({
     return mapping;
   }, [transactions, outflowCategories, currentMonthKey]);
 
-  const totalAllocatedSum = useMemo(() => {
-    return outflowCategories.reduce((sum, cat) => sum + (envelopeAllocations[cat] || 0), 0);
-  }, [envelopeAllocations, outflowCategories]);
+  const totalAllocatedSum = useMemo(
+    () => sumAllocations(monthAllocs, outflowCategories),
+    [monthAllocs, outflowCategories]
+  );
 
   const executeSaveAllocation = () => {
     if (!selectedConfigCat) return;
-    const amountNum = parseFloat(typedAllocationAmount) || 0;
-    
-    const nextAllocations = { ...envelopeAllocations, [selectedConfigCat]: amountNum };
+    const amountNum = parseNonNegativeMoney(typedAllocationAmount);
+    if (amountNum === null) {
+      Alert.alert("Invalid Amount", "Enter an amount of zero or more.");
+      return;
+    }
+    const plan = planAllocation({
+      cap: activeCurrentMonthBudgetCap, monthAllocs, categories: outflowCategories,
+      category: selectedConfigCat, amount: amountNum
+    });
+    if (!plan.ok) {
+      Alert.alert("Ceiling Exceeded", plan.error);
+      return;
+    }
+
+    const nextAllocations = { ...envelopeAllocations, [currentMonthKey]: plan.next };
     setEnvelopeAllocations(nextAllocations);
     onSaveCache(monthlyBudgets, nextAllocations);
     setTypedAllocationAmount('');
@@ -136,21 +152,15 @@ export function BudgetScreen({
   };
 
   const executeInterEnvelopeTransfer = () => {
-    const amountToMove = parseFloat(transferAmount);
-    if (!amountToMove || amountToMove <= 0 || transferFromCat === transferToCat) return;
-
-    const sourceCurrentAllocation = envelopeAllocations[transferFromCat] || 0;
-    if (sourceCurrentAllocation < amountToMove) {
-      alert(`Insufficient funds! Your ${transferFromCat} envelope only contains $${sourceCurrentAllocation.toFixed(2)}.`);
+    const plan = planTransfer({
+      monthAllocs, from: transferFromCat, to: transferToCat, amount: parsePositiveMoney(transferAmount)
+    });
+    if (!plan.ok) {
+      Alert.alert("Transfer Failed", plan.error);
       return;
     }
 
-    const nextAllocations = {
-      ...envelopeAllocations,
-      [transferFromCat]: sourceCurrentAllocation - amountToMove,
-      [transferToCat]: (envelopeAllocations[transferToCat] || 0) + amountToMove
-    };
-
+    const nextAllocations = { ...envelopeAllocations, [currentMonthKey]: plan.next };
     setEnvelopeAllocations(nextAllocations);
     onSaveCache(monthlyBudgets, nextAllocations);
     setTransferAmount('');
@@ -176,29 +186,19 @@ export function BudgetScreen({
 
     transactions.forEach(tx => {
       if (tx.type !== 'Expense') return;
-      let txMonth = '';
-      if (tx.date.includes('-')) txMonth = tx.date.substring(0, 7);
-      else if (tx.date.includes('/')) {
-        const parts = tx.date.split('/');
-        txMonth = `${parts[2]}-${String(parts[1]).padStart(2, '0')}`;
-      }
+      const txMonth = getYearMonthStr(tx.date);
       if (aggregationMap[txMonth] !== undefined) {
         aggregationMap[txMonth] += tx.amount;
       }
     });
 
     return pastTimelinePoints.map(p => {
-      // FIXED: Scrubbed out the hardcoded 2000 fallbacks entirely so unconfigured timelines evaluate cleanly as 0
-      const pastMonthBudgetCeiling = monthlyBudgets[p.key] || activeCurrentMonthBudgetCap || 0;
-      const actualExpenses = aggregationMap[p.key];
-      const budgetVarianceDelta = pastMonthBudgetCeiling - actualExpenses;
-
-      return {
-        label: p.label,
-        variance: budgetVarianceDelta
-      };
+      // Only months that actually had a locked ceiling are audited; never borrow the current cap for history.
+      const pastMonthBudgetCeiling = monthlyBudgets[p.key] || 0;
+      if (!(pastMonthBudgetCeiling > 0)) return { label: p.label, variance: null };
+      return { label: p.label, variance: pastMonthBudgetCeiling - aggregationMap[p.key] };
     });
-  }, [transactions, monthlyBudgets, activeCurrentMonthBudgetCap]);
+  }, [transactions, monthlyBudgets]);
 
   const graphW = screenWidth - 60;
   const graphH = 170; 
@@ -207,7 +207,7 @@ export function BudgetScreen({
   const barW = colSpacing - 32;
 
   const maxVarianceAbsolutePeak = useMemo(() => {
-    const peaks = evaluationChartPoints.map(p => Math.abs(p.variance));
+    const peaks = evaluationChartPoints.map(p => (p.variance === null ? 0 : Math.abs(p.variance)));
     return Math.max(...peaks, 100); // Dynamic bounding scales downward safely to prevent macro scaling distortion
   }, [evaluationChartPoints]);
 
@@ -223,7 +223,7 @@ export function BudgetScreen({
         {isBudgetLockedForThisMonth ? (
           <View style={{ backgroundColor: 'rgba(56, 189, 248, 0.08)', borderRadius: 8, padding: 12, marginTop: 4 }}>
             <Text style={[theme.boldText, { color: '#38bdf8', fontSize: 15 }]}>
-              Unbreakable June Ceiling Limit: ${activeCurrentMonthBudgetCap.toFixed(0)}
+              Unbreakable {currentMonthName} Ceiling Limit: ${activeCurrentMonthBudgetCap.toFixed(0)}
             </Text>
             <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
               Distributed capital allocation: ${totalAllocatedSum.toFixed(0)} / ${activeCurrentMonthBudgetCap.toFixed(0)}
@@ -264,7 +264,7 @@ export function BudgetScreen({
       <View style={theme.card}>
         <Text style={theme.cardTitle}>Active Envelopes Gauges</Text>
         {outflowCategories.map(cat => {
-          const limit = envelopeAllocations[cat] || 0;
+          const limit = monthAllocs[cat] || 0;
           const spent = currentMonthSpendingMap[cat] || 0;
           const remaining = limit - spent;
           const percentageUsed = limit > 0 ? Math.min(spent / limit, 1.0) : 0;
@@ -311,7 +311,7 @@ export function BudgetScreen({
             value={typedAllocationAmount}
             onChangeText={setTypedAllocationAmount}
             onFocus={handleAllocationFocus}
-            disabled={!isBudgetLockedForThisMonth}
+            editable={isBudgetLockedForThisMonth}
           />
           <TouchableOpacity 
             style={[theme.primaryButton, { marginTop: 0, minWidth: 95, paddingHorizontal: 12 }, !isBudgetLockedForThisMonth && { backgroundColor: '#475569' }]} 
@@ -367,7 +367,7 @@ export function BudgetScreen({
             value={transferAmount}
             onChangeText={setTransferAmount}
             onFocus={handleTransferFocus}
-            disabled={!isBudgetLockedForThisMonth}
+            editable={isBudgetLockedForThisMonth}
           />
           <TouchableOpacity 
             style={[theme.primaryButton, { marginTop: 0, minWidth: 95, paddingHorizontal: 12, backgroundColor: '#38bdf8' }, !isBudgetLockedForThisMonth && { backgroundColor: '#475569' }]} 
@@ -383,7 +383,7 @@ export function BudgetScreen({
       <View style={theme.card}>
         <Text style={theme.cardTitle}>Historical Compliance Audit</Text>
         <Text style={{ color: '#94a3b8', fontSize: 11, marginTop: 2, marginBottom: 8 }}>
-          Net budget variance chart (Budget Limit - Actual Spending). Columns above the zero-axis line indicate savings; columns dropping below indicate overspending breaches.
+          Net budget variance chart (Budget Limit - Actual Spending) for months where a ceiling was locked. Columns above the zero-axis line indicate savings; columns dropping below indicate overspending breaches.
         </Text>
         
         <View style={{ alignItems: 'center', marginTop: 15 }}>
@@ -391,6 +391,15 @@ export function BudgetScreen({
             <Line x1="0" y1={zeroLineY} x2={graphW} y2={zeroLineY} stroke="#475569" strokeWidth="1.5" strokeDasharray="3,3" />
 
             {evaluationChartPoints.map((pt, index) => {
+              if (pt.variance === null) {
+                const cx = (index * colSpacing) + colSpacing / 2;
+                return (
+                  <G key={index}>
+                    <SvgText x={cx} y={zeroLineY - 6} fill="#64748b" fontSize="9" fontWeight="600" textAnchor="middle">No cap</SvgText>
+                    <SvgText x={cx} y={graphH - 4} fill="#64748b" fontSize="11" fontWeight="600" textAnchor="middle">{pt.label}</SvgText>
+                  </G>
+                );
+              }
               const x = (index * colSpacing) + (colSpacing - barW) / 2;
               const barH = Math.abs(pt.variance) * geometricScaleFactor;
               const isGreenSurplus = pt.variance >= 0;
@@ -430,7 +439,7 @@ export function BudgetScreen({
             </Text>
             <ScrollView style={{ width: '100%' }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {outflowCategories.map(cat => {
-                const currentFundedBalance = envelopeAllocations[cat] || 0;
+                const currentFundedBalance = monthAllocs[cat] || 0;
                 const isSelected = pickerTargetType === 'from' ? transferFromCat === cat : transferToCat === cat;
                 return (
                   <TouchableOpacity
