@@ -1,6 +1,6 @@
 // App.js
 import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform } from 'react-native';
+import { SafeAreaView, View, Text, TouchableOpacity, ScrollView, Alert, Linking, Platform, StatusBar } from 'react-native';
 
 import { theme } from './src/styles/theme';
 import { SummaryScreen } from './src/screens/SummaryScreen';
@@ -46,6 +46,11 @@ export default function App() {
   const [reconAccountId, setReconAccountId] = useState(null);
   const [reconNewBalance, setReconNewBalance] = useState('');
 
+  // The URL listener is registered once; it reads the latest categories through this ref
+  // (re-registering on every category change re-ran getInitialURL and re-staged the same link).
+  const categoriesRef = React.useRef({ outflow: [], inflow: [] });
+  categoriesRef.current = { outflow: outflowCategories, inflow: inflowCategories };
+
   useEffect(() => {
     Linking.getInitialURL().then(url => {
       if (url) processIncomingDeepAction(url);
@@ -58,38 +63,42 @@ export default function App() {
     return () => {
       urlSubscription.remove();
     };
-  }, [outflowCategories, inflowCategories]);
+  }, []);
 
+  // minibudget://log?amount=12.50&category=Food  -- only stages the entry; the user still commits it.
   const processIncomingDeepAction = (url) => {
     try {
       if (!url || !url.includes('://log')) return;
-      const splitUrlParts = url.split('?');
-      const queryParametersString = splitUrlParts[1];
+      const queryParametersString = url.split('?')[1];
       if (!queryParametersString) return;
 
-      const argumentPairs = queryParametersString.split('&');
       let extractedAmount = '';
       let extractedCategory = '';
 
-      argumentPairs.forEach(paramPair => {
-        const [key, value] = paramPair.split('=');
-        if (key === 'amount') extractedAmount = decodeURIComponent(value);
-        if (key === 'category') extractedCategory = decodeURIComponent(value);
+      queryParametersString.split('&').forEach(paramPair => {
+        const eq = paramPair.indexOf('=');
+        if (eq < 0) return;
+        const key = paramPair.slice(0, eq);
+        const value = decodeURIComponent(paramPair.slice(eq + 1).replace(/\+/g, ' '));
+        if (key === 'amount') extractedAmount = value;
+        if (key === 'category') extractedCategory = value;
       });
 
-      if (extractedAmount && !isNaN(extractedAmount)) {
-        setExpenseAmount(extractedAmount);
+      const deepLinkAmount = parsePositiveMoney(extractedAmount);
+      if (deepLinkAmount !== null) {
+        setExpenseAmount(String(deepLinkAmount));
       }
-      
+
       if (extractedCategory) {
-        const standardizedCat = [...outflowCategories, ...inflowCategories].find(
+        const { outflow, inflow } = categoriesRef.current;
+        const standardizedCat = [...outflow, ...inflow].find(
           c => c.toLowerCase() === extractedCategory.toLowerCase().trim()
         );
         if (standardizedCat) setExpenseCategory(standardizedCat);
       }
 
       setQuickLogModalVisible(true);
-      Alert.alert("Quick Launcher Active", `Staged $${extractedAmount} under ${extractedCategory} inside log workspace.`);
+      Alert.alert("Quick Launcher Active", "Review the staged entry, then commit it from the log workspace.");
     } catch (err) {
       console.log("Deep link parsing error context: ", err);
     }
@@ -523,6 +532,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={theme.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
       <View style={theme.header}>
         <Text style={theme.headerTitle}>MiniBudget</Text>
         <Text style={theme.headerSubtitle}>Total Net Worth: ${totalFinancialResources.toFixed(2)}</Text>
