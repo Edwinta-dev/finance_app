@@ -83,7 +83,7 @@ export function TransactionsScreen({
                     backgroundColor: profitMargin >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
                     paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6
                   }}>
-                    {profitMargin >= 0 ? '+' : '-'}${Math.abs(profitMargin).toFixed(0)} month net
+                    {profitMargin >= 0 ? '+' : '-'}${Math.abs(profitMargin).toFixed(0)} net logged
                   </Text>
                 )}
                 <Text style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: 16 }}>

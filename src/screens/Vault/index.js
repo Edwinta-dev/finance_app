@@ -10,47 +10,27 @@ import { AssetsView } from './components/AssetsView';
 import { YieldOptimizerView } from './components/YieldOptimizerView';
 
 export function AccountsScreen(props) {
-  const state = useVaultState(
-    props.accounts, props.outflowCategories, props.inflowCategories, 
-    props.onUpdateRecurring, props.onUpdateInterestRate
-  );
+  const state = useVaultState(props);
 
   const executeAddAccountComplete = () => {
-    if (!props.newAccountName || !props.newAccountBalance) return;
-    props.onCreateAccount();
-    
-    // Check if initial custom yield target was typed; assign if cleared
-    if (state.newAccountInterest.trim() && !isNaN(state.newAccountInterest)) {
-      setTimeout(() => {
-        const newlyCreated = props.accounts[props.accounts.length - 1];
-        if (newlyCreated) {
-          props.onUpdateInterestRate(newlyCreated.id, state.newAccountInterest.trim());
-        } else {
-          // Fallback context: loop fallback catch
-          const matched = props.accounts.find(a => a.name === props.newAccountName);
-          if (matched) props.onUpdateInterestRate(matched.id, state.newAccountInterest.trim());
-        }
-      }, 150);
+    // App creates the account (including its interest rate) in one state update and tells us if it worked.
+    if (props.onCreateAccount(state.newAccountInterest)) {
+      state.setNewAccountInterest('');
+      state.setIsAddAccountModalVisible(false);
     }
-    state.setNewAccountInterest('');
-    state.setIsAddAccountModalVisible(false);
   };
 
   const executeAccountModificationSave = () => {
-    if (!state.selectedAccountId || !state.editingAccountName.trim()) return;
-    
-    // 1. Pass updated interest settings down directly to operational array parameters
-    props.onUpdateInterestRate(state.selectedAccountId, state.editingAccountInterest || '0.0');
-    
-    // 2. Re-align base tracking properties natively via parent amenders
-    const target = props.accounts.find(a => a.id === state.selectedAccountId);
-    if (target) {
-      target.name = state.editingAccountName.trim();
-      target.balance = parseFloat(state.editingAccountBalance) || 0.0;
+    if (!state.selectedAccountId) return;
+    const saved = props.onUpdateAccount(state.selectedAccountId, {
+      name: state.editingAccountName,
+      balance: state.editingAccountBalance,
+      interestRate: state.editingAccountInterest
+    });
+    if (saved) {
+      state.setIsEditAccountModalVisible(false);
+      state.setSelectedAccountId(null);
     }
-    
-    state.setIsEditAccountModalVisible(false);
-    state.setSelectedAccountId(null);
   };
 
   return (
@@ -65,7 +45,7 @@ export function AccountsScreen(props) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView scrollRef={props.scrollRef} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {state.activeTab === 'assets' ? (
           <AssetsView 
             {...props} {...state}
@@ -154,6 +134,15 @@ export function AccountsScreen(props) {
                 ))}
               </View>
 
+              <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Category Tag:</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
+                {(state.recIsIncoming ? props.inflowCategories : props.outflowCategories).map(c => (
+                  <TouchableOpacity key={c} style={[theme.pill, state.recCategory === c && theme.activePill]} onPress={() => state.setRecCategory(c)}>
+                    <Text style={[theme.pillText, state.recCategory === c && theme.activePillText]}>{c}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
               <Text style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>Amount Value ($):</Text>
               <TextInput style={theme.input} keyboardType="numeric" value={state.recAmount} onChangeText={state.setRecAmount} />
 
@@ -162,7 +151,7 @@ export function AccountsScreen(props) {
 
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
                 <TouchableOpacity style={{ flex: 1, backgroundColor: '#475569', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }} onPress={() => state.setIsEditRecModalVisible(false)}><Text style={{ color: '#cbd5e1', fontWeight: '700' }}>Cancel</Text></TouchableOpacity>
-                <TouchableOpacity style={{ flex: 1, backgroundColor: '#f87171', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }} onPress={() => { props.onDeleteRecurring(state.selectedRecId); state.setIsEditRecModalVisible(false); }}><Text style={{ color: '#0f172a', fontWeight: '700' }}>Delete</Text></TouchableOpacity>
+                <TouchableOpacity style={{ flex: 1, backgroundColor: '#f87171', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }} onPress={state.executeDeleteRecurring}><Text style={{ color: '#0f172a', fontWeight: '700' }}>Delete</Text></TouchableOpacity>
                 <TouchableOpacity style={{ flex: 1, backgroundColor: '#34d399', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }} onPress={() => state.executeSaveAutomationSubmit(true)}><Text style={{ color: '#0f172a', fontWeight: '700' }}>Save Specs</Text></TouchableOpacity>
               </View>
             </ScrollView>
